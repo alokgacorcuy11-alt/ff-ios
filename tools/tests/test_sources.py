@@ -424,8 +424,8 @@ def audit_workflow():
               "-> a failing lint would hide the compiler output")
         macos = [j.get("runs-on") for j in jobs.values()
                  if isinstance(j.get("runs-on"), str) and "macos" in j["runs-on"]]
-        check(f"{p.name} pins no retired macOS runner",
-              all(not r.endswith(("-13", "-14")) for r in macos),
+        check(f"{p.name} pins a macOS runner that exists",
+              all(r not in ("macos-12", "macos-13", "macos-14") for r in macos),
               f"-> {macos}")
 
         # Both logs must survive a failing run, or a red build cannot be read.

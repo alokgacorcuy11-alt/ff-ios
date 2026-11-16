@@ -129,7 +129,13 @@ jobs:
     # questions, and the compiler answer is the one that takes a macOS runner to
     # get. Gating it here meant a single test failure skipped the build and left
     # nothing to read.
-    runs-on: macos-latest
+    #
+    # Intel, not arm64. `macos-latest` resolves to an arm64 image on this
+    # account, and those sat in the queue unassigned for 15 minutes and were
+    # then cancelled ("runner_name" empty, no step ever recorded). Building an
+    # arm64 iOS dylib on an x86_64 host is the classic Theos configuration, so
+    # nothing is lost by asking for the runner that is actually available.
+    runs-on: macos-15-intel
     steps:
       - uses: actions/checkout@v4
 

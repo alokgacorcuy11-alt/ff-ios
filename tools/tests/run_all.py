@@ -67,6 +67,14 @@ def run_shell(label, path, verbose):
         print(out.rstrip())
     else:
         print(f"[PASS] {label} {checks:>3} checks  {dt:5.2f}s")
+    if not ok:
+        fails = [ln.strip() for ln in out.splitlines() if ln.strip().startswith("[FAIL]")]
+        for line in fails[:12]:
+            annotate(f"{label.strip()}: {line}", "shell suite")
+        if not fails:
+            annotate(f"{label.strip()} failed with no [FAIL] lines (exit "
+                     f"{r.returncode}); tail: "
+                     f"{' | '.join(out.strip().splitlines()[-6:])}", "shell suite")
     return (label.strip(), ok, checks, dt)
 
 

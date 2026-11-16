@@ -9,22 +9,52 @@ trap 'rm -rf "$TMP"' EXIT
 
 pass=0
 fail=0
+LAST_OUT=""
+
+# Annotate on CI: a failing run on a public repo cannot be read back through the
+# API without a token, but check-run annotations can. Without this the only
+# signal from a red build is "exit code 1".
+annotate() {
+  [ "${GITHUB_ACTIONS:-}" = "true" ] || return 0
+  local msg="${1//%/%25}"
+  msg="${msg//$'\n'/%0A}"
+  echo "::error title=fetch_ipa::$msg"
+}
+
+# check <name> <got> <expected> [context]
 check() {
-  if [ "$2" = "$3" ]; then
-    printf '[ok  ] %s\n' "$1"
+  local name="$1" got="$2" want="$3" ctx="${4:-}"
+  if [ "$got" = "$want" ]; then
+    printf '[ok  ] %s\n' "$name"
     pass=$((pass + 1))
-  else
-    printf '[FAIL] %s -> expected %s, got %s\n' "$1" "$3" "$2"
-    fail=$((fail + 1))
+    return 0
   fi
+  printf '[FAIL] %s -> expected %s, got %s\n' "$name" "$want" "$got"
+  if [ -n "$ctx" ]; then
+    printf '       context: %s\n' "$(printf '%s' "$ctx" | tail -12 | tr '\n' '|')"
+  fi
+  annotate "$name -> expected $want, got $got | ${ctx:0:600}"
+  fail=$((fail + 1))
+}
+
+# run_fetch <url> [outfile] -> sets RC and LAST_OUT
+run_fetch() {
+  LAST_OUT="$("$FETCH" "$1" "${2:-$TMP/out.ipa}" 2>&1)"
+  RC=$?
 }
 
 for t in curl od wc head tr mktemp python3; do
   if ! command -v "$t" >/dev/null 2>&1; then
     echo "missing required tool: $t"
+    annotate "missing required tool: $t"
     exit 2
   fi
 done
+
+echo "bash   : $BASH_VERSION"
+echo "curl   : $(curl --version | head -1)"
+echo "python3: $(python3 -V 2>&1)"
+echo
 
 # 1. a real IPA shape (a zip with Payload/*.app/Info.plist) and big enough
 python3 - "$TMP/good.ipa" <<'PY'
@@ -33,15 +63,17 @@ with zipfile.ZipFile(sys.argv[1], "w", zipfile.ZIP_STORED) as z:
     z.writestr("Payload/FreeFire.app/Info.plist", "<plist/>")
     z.writestr("Payload/FreeFire.app/FreeFire", b"\xcf\xfa\xed\xfe" + b"\x00" * (21 * 1024 * 1024))
 PY
-out=$("$FETCH" "file://$TMP/good.ipa" "$TMP/out.ipa" 2>&1); rc=$?
-check "accepts a valid IPA" "$rc" "0"
+echo "fixture size: $(wc -c < "$TMP/good.ipa") bytes (needs >= 20971520)"
+
+run_fetch "file://$TMP/good.ipa" "$TMP/out.ipa"
+check "accepts a valid IPA" "$RC" "0" "$LAST_OUT"
 
 # 2. an HTML error page - the failure that used to look like a success
 printf '<!DOCTYPE html>\n<html><body>404 Not Found</body></html>\n' > "$TMP/page.html"
-out=$("$FETCH" "file://$TMP/page.html" "$TMP/out2.ipa" 2>&1); rc=$?
-check "refuses an error page" "$rc" "1"
-case "$out" in *"too small"*|*"not a zip"*) check "says why it refused the page" yes yes ;;
-  *) check "says why it refused the page" no yes ;; esac
+run_fetch "file://$TMP/page.html" "$TMP/out2.ipa"
+check "refuses an error page" "$RC" "1" "$LAST_OUT"
+check "says why it refused the page" \
+      "$(case "$LAST_OUT" in *"too small"*|*"not a zip"*) echo yes;; *) echo no;; esac)" "yes" "$LAST_OUT"
 check "leaves no bogus file behind" "$([ -e "$TMP/out2.ipa" ] && echo yes || echo no)" "no"
 
 # 3. a zip, but not an IPA
@@ -51,18 +83,20 @@ with zipfile.ZipFile(sys.argv[1], "w", zipfile.ZIP_STORED) as z:
     z.writestr("readme.txt", "not an ipa")
     z.writestr("padding.bin", b"\x00" * (21 * 1024 * 1024))
 PY
-out=$("$FETCH" "file://$TMP/notipa.ipa" "$TMP/out3.ipa" 2>&1); rc=$?
-check "refuses a zip that is not an IPA" "$rc" "1"
-check "names the missing shape" "$(case "$out" in *Info.plist*) echo yes;; *) echo no;; esac)" "yes"
+run_fetch "file://$TMP/notipa.ipa" "$TMP/out3.ipa"
+check "refuses a zip that is not an IPA" "$RC" "1" "$LAST_OUT"
+check "names the missing shape" \
+      "$(case "$LAST_OUT" in *Info.plist*) echo yes;; *) echo no;; esac)" "yes" "$LAST_OUT"
 
 # 4. a URL that does not exist at all
-out=$("$FETCH" "file://$TMP/absent.ipa" "$TMP/out4.ipa" 2>&1); rc=$?
-check "refuses a missing URL" "$rc" "1"
-check "mentions the URL" "$(case "$out" in *"download failed"*) echo yes;; *) echo no;; esac)" "yes"
+run_fetch "file://$TMP/absent.ipa" "$TMP/out4.ipa"
+check "refuses a missing URL" "$RC" "1" "$LAST_OUT"
+check "mentions the download failure" \
+      "$(case "$LAST_OUT" in *"download failed"*) echo yes;; *) echo no;; esac)" "yes" "$LAST_OUT"
 
 # 5. no argument at all is a usage error, not a crash
-out=$("$FETCH" 2>&1); rc=$?
-check "usage error has its own exit code" "$rc" "2"
+LAST_OUT="$("$FETCH" 2>&1)"; RC=$?
+check "usage error has its own exit code" "$RC" "2" "$LAST_OUT"
 
 echo
 echo "$pass passed, $fail failed"

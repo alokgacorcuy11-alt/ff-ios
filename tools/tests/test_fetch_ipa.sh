@@ -38,8 +38,11 @@ check() {
 }
 
 # run_fetch <url> [outfile] -> sets RC and LAST_OUT
+# Invoked through bash on purpose: the executable bit is a property of the git
+# index, and a checkout that lost it (or a filesystem that cannot express it,
+# like a Windows mount) must not turn every assertion into exit code 126.
 run_fetch() {
-  LAST_OUT="$("$FETCH" "$1" "${2:-$TMP/out.ipa}" 2>&1)"
+  LAST_OUT="$(bash "$FETCH" "$1" "${2:-$TMP/out.ipa}" 2>&1)"
   RC=$?
 }
 
@@ -95,7 +98,7 @@ check "mentions the download failure" \
       "$(case "$LAST_OUT" in *"download failed"*) echo yes;; *) echo no;; esac)" "yes" "$LAST_OUT"
 
 # 5. no argument at all is a usage error, not a crash
-LAST_OUT="$("$FETCH" 2>&1)"; RC=$?
+LAST_OUT="$(bash "$FETCH" 2>&1)"; RC=$?
 check "usage error has its own exit code" "$RC" "2" "$LAST_OUT"
 
 echo

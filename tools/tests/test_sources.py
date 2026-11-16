@@ -407,6 +407,43 @@ def audit_workflow():
                   and "verify" in body.lower())
             check(f"{p.name} proves the camouflage landed", "UnityServices" in body)
 
+        # --- the job graph -------------------------------------------------
+        # Two failures on the first four runs came from here, and both were
+        # invisible without the log: a retired runner label, and a compile step
+        # silently skipped because a Python test failed.
+        def needs(job):
+            n = job.get("needs")
+            return [] if n is None else ([n] if isinstance(n, str) else list(n))
+
+        for name, job in jobs.items():
+            for dep in needs(job):
+                check(f"{p.name}/{name} needs an existing job ({dep})", dep in jobs)
+
+        check(f"{p.name} does not gate the dylib build on the test suite",
+              "offline-tests" not in needs(jobs.get("build-dylib", {})),
+              "-> a failing lint would hide the compiler output")
+        macos = [j.get("runs-on") for j in jobs.values()
+                 if isinstance(j.get("runs-on"), str) and "macos" in j["runs-on"]]
+        check(f"{p.name} pins no retired macOS runner",
+              all(not r.endswith(("-13", "-14")) for r in macos),
+              f"-> {macos}")
+
+        # Both logs must survive a failing run, or a red build cannot be read.
+        uploaded = {(s.get("with") or {}).get("name"): s.get("if")
+                    for j in jobs.values() for s in (j.get("steps") or [])
+                    if str(s.get("uses", "")).startswith("actions/upload-artifact")}
+        check(f"{p.name} uploads the compiler log", "build-log" in uploaded)
+        check(f"{p.name} uploads the test log", "tests-log" in uploaded)
+        check(f"{p.name} uploads the test log on failure too",
+              uploaded.get("tests-log") == "always()",
+              f"-> if: {uploaded.get('tests-log')}")
+
+        # Something must publish the reason, not just an exit code.
+        check(f"{p.name} emits compiler errors as annotations",
+              "::error title=compiler" in body)
+        check(f"{p.name} makes test failures readable from the API",
+              "GITHUB_ACTIONS" in body or "::error" in body)
+
 
 def audit_menu_assets():
     fj = ROOT / "menu" / "features.json"
@@ -1125,63 +1162,26 @@ def audit_import_safety():
           f"-> rc={r.returncode} {(r.stderr or '').strip().splitlines()[-1:] or ''}")
 
 
-def audit_workflow():
-    """The workflow is infrastructure that only fails in CI, where a mistake
-    costs a runner and is invisible without a token. Check what can be checked
-    statically - and in particular that the compile step cannot be skipped by an
-    unrelated test failure, which is what happened on the very first run.
+def audit_script_modes():
+    """A .sh without the executable bit passes every local check on Windows -
+    the filesystem cannot express the mode - and then fails on the runner with
+    exit 126. That is exactly how the first two CI runs went red. The bit lives
+    in the git index, so ask git.
     """
-    try:
-        import yaml
-    except ImportError:                                   # pragma: no cover
-        check("pyyaml available for the workflow audit", False,
-              "-> install requirements.txt; this audit is the only guard on the CI graph")
+    import shutil
+    git = shutil.which("git")
+    if not git or not (ROOT / ".git").exists():
+        check("every .sh is executable in the git index", True,
+              "-> skipped: no git work tree here")
         return
-
-    wf_path = ROOT / ".github" / "workflows" / "build-and-package.yml"
-    check("workflow file present", wf_path.exists())
-    if not wf_path.exists():
-        return
-    wf = yaml.safe_load(wf_path.read_text(encoding="utf-8"))
-    jobs = wf.get("jobs") or {}
-
-    def needs(job):
-        n = job.get("needs")
-        return [] if n is None else ([n] if isinstance(n, str) else list(n))
-
-    for name, job in jobs.items():
-        for dep in needs(job):
-            check(f"workflow: {name} needs an existing job ({dep})", dep in jobs)
-
-    # The one that bit: offline-tests failing skipped the dylib build entirely,
-    # so a broken Python test meant no compiler output to read.
-    check("workflow: the dylib build is not gated on the test suite",
-          "offline-tests" not in needs(jobs.get("build-dylib", {})),
-          "-> a lint failure would hide the compiler output again")
-
-    # Compiler output and test output must both survive a failing run.
-    logs = []
-    for name, job in jobs.items():
-        for step in job.get("steps") or []:
-            if step.get("uses", "").startswith("actions/upload-artifact"):
-                logs.append((name, step.get("with", {}).get("name"), step.get("if"),
-                             step.get("with", {}).get("path")))
-    names = {n for _j, n, _i, _p in logs}
-    check("workflow: the compiler log is uploaded", "build-log" in names)
-    check("workflow: the test log is uploaded", "tests-log" in names)
-    check("workflow: the test log is uploaded even when tests fail",
-          any(n == "tests-log" and i == "always()" for _j, n, i, _p in logs))
-
-    # Every script the workflow runs must exist, or the step dies at line 1.
-    refs = set()
-    for job in jobs.values():
-        for step in job.get("steps") or []:
-            body = step.get("run") or ""
-            refs |= set(re.findall(r"(?:^|\s)((?:tools|native|menu)/[\w./-]+\.(?:py|sh|js))",
-                                   body, re.M))
-    missing = sorted(r for r in refs if not (ROOT / r).exists())
-    check("workflow: every script it runs exists", not missing,
-          "-> " + "; ".join(missing) if missing else f"-> {len(refs)} referenced")
+    r = subprocess.run([git, "ls-files", "-s", "*.sh"], cwd=str(ROOT),
+                       capture_output=True, text=True, encoding="utf-8",
+                       errors="replace")
+    lines = [ln for ln in (r.stdout or "").splitlines() if ln.strip()]
+    bad = [ln for ln in lines if not ln.startswith("100755")]
+    check("every .sh is executable in the git index", not bad,
+          "-> " + "; ".join(x.split("\t")[-1] for x in bad[:6]) if bad
+          else f"-> {len(lines)} script(s) at 100755")
 
 
 def main() -> int:
@@ -1222,7 +1222,7 @@ def main() -> int:
     print()
     audit_import_safety()
     print()
-    audit_workflow()
+    audit_script_modes()
     print()
     if FAIL:
         print(f"{FAIL} check(s) FAILED")

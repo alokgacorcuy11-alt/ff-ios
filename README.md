@@ -368,9 +368,11 @@ and that the image does not name itself — all of which pass.
 
 Two notes on the runner, because both cost a run to learn:
 
-- **Intel, not arm64.** `macos-latest` resolves to an arm64 image here, and those
-  sat in the queue unassigned for 15 minutes and were then cancelled. Building an
-  arm64 iOS dylib on an x86_64 host is the classic Theos configuration.
+- **The runner is `macos-15-intel`, not `macos-latest`.** `macos-latest` resolves
+  to an arm64 image here; those jobs sat in the queue unassigned for 15 minutes
+  and were then cancelled, with no step ever recorded. The Intel image schedules
+  immediately, and building an arm64 iOS dylib on an x86_64 host is the classic
+  Theos configuration — nothing is lost.
 - **The build is not gated on the test suite.** A failing Python test used to skip
   the compile entirely, which hid the compiler output — the exact thing you need
   when the toolchain is what is broken.

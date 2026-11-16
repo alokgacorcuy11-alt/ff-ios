@@ -253,6 +253,30 @@ Run them yourself:
 python tools/tests/run_all.py      # every suite, ~6 s, no device
 ```
 
+### 9b. What the first real compile found that no offline check did
+
+The suites above are static. The first successful CI build (GitHub Actions, Intel
+macOS) found two things they could not, and both are worth knowing because they
+are invisible on a Windows working copy:
+
+| bug | why nothing offline caught it |
+|---|---|
+| `Menu/FFMenu.m`: `#define R(g,l,k,kind) ... r.kind=kind ...` expanded to `r.RowToggle=RowToggle` | the preprocessor replaces every occurrence of a parameter name, including the token after the dot. Nine errors at nine call sites, all reading "property 'RowToggle' not found on object of type 'USRow *'". Now guarded by `audit_macro_params()`, with self-tests that prove it can fail. |
+| `Core/Game.m`: `int tried` was only read by `FFLOG` | `make RELEASE=1` compiles every `FFLOG` out, so the variable is write-only there — and Theos builds with `-Werror`, so it is a hard error rather than a warning. Now guarded by `tools/lint_logonly.py`, which found a second instance (`Inject.m`, `moved`) that is now part of the self-test's return value. |
+
+Two more that were infrastructure rather than code, recorded because both cost a
+run to find and neither is guessable from the repository alone:
+
+- `macos-14` no longer resolves to a usable configuration on this account
+  (`The configuration 'macos-14-arm64-us-default' is not supported`), and
+  `macos-latest` resolves to an arm64 image that sat unassigned in the queue for
+  15 minutes before being cancelled. `macos-15-intel` schedules immediately;
+  building an arm64 iOS dylib on an x86_64 host is the classic Theos setup.
+- `tools/fetch_ipa.sh` was committed without the executable bit. Windows cannot
+  express that mode, so every local run passed and the runner answered
+  `Permission denied` (exit 126) on every assertion. `audit_script_modes()` now
+  asks git's index.
+
 ---
 
 ## 10. Status

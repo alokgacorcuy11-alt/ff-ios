@@ -354,6 +354,30 @@ The real native menu (floating overlay over the render, IL2CPP-driven ESP) needs
 the IPA route. **That route is built — see `native/README.md`.**
 It is a Theos dylib injected into the official IPA, driven by this same panel.
 
+### Build status
+
+| job | state | where |
+|---|---|---|
+| offline suites (894 checks) | **green** | `ubuntu-latest`, every push |
+| `FFMenu.dylib` (arm64, iOS 12 floor) | **green**, ~295 KB | `macos-15-intel`, every push |
+| package IPA | runs when an `ipa_url` is supplied | `ubuntu-latest` |
+
+The compiled dylib is the `FFMenu-dylib` artefact on each run. The build asserts
+arm64-only, the iOS 12 deployment target, that no plaintext feature key survives,
+and that the image does not name itself — all of which pass.
+
+Two notes on the runner, because both cost a run to learn:
+
+- **Intel, not arm64.** `macos-latest` resolves to an arm64 image here, and those
+  sat in the queue unassigned for 15 minutes and were then cancelled. Building an
+  arm64 iOS dylib on an x86_64 host is the classic Theos configuration.
+- **The build is not gated on the test suite.** A failing Python test used to skip
+  the compile entirely, which hid the compiler output — the exact thing you need
+  when the toolchain is what is broken.
+
+Compiler diagnostics are published as check-run annotations, so the reason for a
+red build is readable without downloading the job log.
+
 ## 4.6 The native layer (`native/`)
 
 The proxy cannot create ESP. That is not a limitation of this implementation —

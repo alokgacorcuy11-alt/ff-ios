@@ -15,6 +15,7 @@ Covers everything that can be verified without macOS, a device or a real IPA:
 from __future__ import annotations
 
 import argparse
+import os
 import pathlib
 import subprocess
 import sys
@@ -69,6 +70,21 @@ def run_shell(label, path, verbose):
     return (label.strip(), ok, checks, dt)
 
 
+def annotate(msg, title="run_all"):
+    """Emit a GitHub ::error:: annotation when running in Actions.
+
+    Why: a failing run on a public repo cannot be read back through the API
+    without a token, but annotations attached to a check run CAN be. So the
+    failing check names are published there, and the reason for a red build is
+    readable from outside - which is exactly how the macos runner problem was
+    found (`The configuration 'macos-14-arm64-us-default' is not supported`).
+    """
+    if os.environ.get("GITHUB_ACTIONS") != "true":
+        return
+    safe = (msg.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A"))
+    print(f"::error title={title}::{safe}")
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--fail-fast", action="store_true")
@@ -102,6 +118,15 @@ def main() -> int:
                 print(f"[PASS] {label} {checks:>3} checks  {dt:5.2f}s")
         if not ok:
             total_fail += 1
+            # publish the failing check names, not just "suite failed"
+            fails = [ln.strip() for ln in out.splitlines() if ln.strip().startswith("[FAIL]")]
+            for line in fails[:12]:
+                annotate(f"{label.strip()}: {line}", "offline suite")
+            if not fails:
+                annotate(f"{label.strip()} failed with no [FAIL] lines "
+                         f"(exit {r.returncode}); last output: "
+                         f"{out.strip().splitlines()[-1] if out.strip() else '<empty>'}",
+                         "offline suite")
             if a.fail_fast:
                 break
 
@@ -112,6 +137,7 @@ def main() -> int:
         results.append((res[0], res[1], res[2], 0, res[3]))
         if not res[1]:
             total_fail += 1
+            annotate(f"{res[0]}: shell suite failed", "shell suite")
             if a.fail_fast:
                 break
 

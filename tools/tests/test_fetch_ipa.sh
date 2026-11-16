@@ -19,7 +19,7 @@ check() {
   fi
 }
 
-for t in curl unzip od wc head tr mktemp; do
+for t in curl od wc head tr mktemp python3; do
   if ! command -v "$t" >/dev/null 2>&1; then
     echo "missing required tool: $t"
     exit 2

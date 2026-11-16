@@ -82,11 +82,27 @@ case "$magic" in
     exit 1 ;;
 esac
 
-# And the thing we actually need to be inside it.
-if ! unzip -l "$out" 2>/dev/null | grep -qE 'Payload/[^/]+\.app/Info\.plist'; then
-  echo "ERROR: the archive has no Payload/*.app/Info.plist - it is a zip, but not an IPA." >&2
-  rm -f "$out"
-  exit 1
-fi
-echo "    shape: Payload/*.app/Info.plist present"
+# And the thing we actually need to be inside it. Done with python3 rather than
+# the `unzip` binary: python3 is already a hard requirement of this pipeline
+# (package_ipa.py, run_all.py), while `unzip` is one more external program to be
+# missing on a runner - which is precisely the kind of environmental failure
+# that has nothing to do with the payload.
+python3 - "$out" <<'PY'
+import re
+import sys
+import zipfile
+
+try:
+    with zipfile.ZipFile(sys.argv[1]) as z:
+        names = z.namelist()
+except Exception as e:                                        # noqa: BLE001
+    print(f"ERROR: cannot read the archive: {type(e).__name__}: {e}", file=sys.stderr)
+    sys.exit(1)
+
+if not any(re.fullmatch(r"Payload/[^/]+\.app/Info\.plist", n) for n in names):
+    print("ERROR: the archive has no Payload/*.app/Info.plist - it is a zip, "
+          "but not an IPA.", file=sys.stderr)
+    sys.exit(1)
+print(f"    shape: Payload/*.app/Info.plist present ({len(names)} entries)")
+PY
 echo "ok"

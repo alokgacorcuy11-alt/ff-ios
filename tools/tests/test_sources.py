@@ -438,9 +438,13 @@ def audit_workflow():
               uploaded.get("tests-log") == "always()",
               f"-> if: {uploaded.get('tests-log')}")
 
-        # Something must publish the reason, not just an exit code.
-        check(f"{p.name} emits compiler errors as annotations",
-              "::error title=compiler" in body)
+        # Something must publish the reason, not just an exit code. The build
+        # step has to emit per-line diagnostics AND say whether its own filter
+        # matched anything - a filter that finds nothing is indistinguishable
+        # from a failure with no diagnostics.
+        check(f"{p.name} emits line-level build diagnostics as annotations",
+              "::error title=build-hit" in body)
+        check(f"{p.name} reports its diagnostic count", "title=build-summary" in body)
         check(f"{p.name} makes test failures readable from the API",
               "GITHUB_ACTIONS" in body or "::error" in body)
 

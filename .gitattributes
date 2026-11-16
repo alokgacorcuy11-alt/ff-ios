@@ -1,0 +1,33 @@
+# Line endings are not cosmetic here.
+#
+# A shell script stored with CRLF fails on Linux at the shebang
+# ("/bin/bash^M: bad interpreter"), and a Makefile recipe with CRLF breaks make.
+# Both would happen only in CI, only for whoever happens to have
+# core.autocrlf=true - which is the default on Windows, where this was written.
+# So the repository decides, not the committer's git config.
+#
+# eol=lf: always store and check out LF.
+* text=auto eol=lf
+
+*.sh    text eol=lf
+*.py    text eol=lf
+*.m     text eol=lf
+*.h     text eol=lf
+*.x     text eol=lf
+*.yml   text eol=lf
+*.yaml  text eol=lf
+*.json  text eol=lf
+*.md    text eol=lf
+*.plist text eol=lf
+*.bat   text eol=crlf
+Makefile text eol=lf
+
+# Payloads and signing material must never be line-ending converted.
+*.ipa            binary
+*.p12            binary
+*.pfx            binary
+*.mobileprovision binary
+*.cer            binary
+*.key            binary
+*.png            binary
+*.jpg            binary

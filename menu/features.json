@@ -1,0 +1,278 @@
+{
+  "version": 1,
+  "app": "FF PROXY",
+  "note": "Proxy keys are applied live by the addon. The AIMBOT / NATIVE and ESP / NATIVE groups are read by the injected dylib instead, and stay inert until that dylib is installed.",
+  "groups": [
+    {
+      "id": "core",
+      "label": "SESSION",
+      "items": [
+        {
+          "key": "sec.quiet",
+          "type": "toggle",
+          "label": "Quiet Mode",
+          "default": false,
+          "hint": "Kill switch. Stops every modification, pure pass-through.",
+          "danger": true
+        },
+        {
+          "key": "debug.capture_bodies",
+          "type": "toggle",
+          "label": "Capture Bodies",
+          "default": false,
+          "hint": "Write request/response hex into the trace (bigger log, slower)."
+        }
+      ]
+    },
+    {
+      "id": "net",
+      "label": "NETWORK",
+      "items": [
+        {
+          "key": "net.block_telemetry",
+          "type": "toggle",
+          "label": "Block Telemetry",
+          "default": false,
+          "hint": "Refuse analytics / metrics / crash-report hosts. Less upload traffic."
+        },
+        {
+          "key": "net.block_ads",
+          "type": "toggle",
+          "label": "Block Ads",
+          "default": false,
+          "hint": "Refuse ad-network hosts. Less bandwidth contention, fewer stalls."
+        },
+        {
+          "key": "net.lag_ms",
+          "type": "range",
+          "label": "Added Latency",
+          "default": 0,
+          "min": 0,
+          "max": 2000,
+          "step": 50,
+          "unit": "ms",
+          "hint": "Delay applied to matching game traffic before it leaves the laptop."
+        },
+        {
+          "key": "net.drop_pct",
+          "type": "range",
+          "label": "Packet Drop",
+          "default": 0,
+          "min": 0,
+          "max": 100,
+          "step": 5,
+          "unit": "%",
+          "hint": "Randomly refuse matching requests. Sharp tool - server will notice sustained use.",
+          "danger": true
+        }
+      ]
+    },
+    {
+      "id": "cfg",
+      "label": "CONFIG",
+      "items": [
+        {
+          "key": "cfg.apply_overrides",
+          "type": "toggle",
+          "label": "Config Overrides",
+          "default": false,
+          "hint": "Enable the rewrite_json / pb_set rules in rules/freefire.yaml."
+        },
+        {
+          "key": "cfg.keep_alive",
+          "type": "toggle",
+          "label": "Suppress Maintenance",
+          "default": false,
+          "hint": "Flip maintenance/closed flags in HTTP responses to open."
+        },
+        {
+          "key": "cfg.mute_notices",
+          "type": "toggle",
+          "label": "Mute Notices",
+          "default": false,
+          "hint": "Blank announcement / notice payloads so popups stop."
+        },
+        {
+          "key": "cfg.force_region",
+          "type": "text",
+          "label": "Force Region",
+          "default": "",
+          "placeholder": "sg / id / br \u2026 (empty = off)",
+          "hint": "Overwrite region strings in HTTP responses."
+        }
+      ]
+    },
+    {
+      "id": "ui",
+      "label": "INTERFACE",
+      "items": [
+        {
+          "key": "ui.inject_menu",
+          "type": "toggle",
+          "label": "Hijack Webview",
+          "default": false,
+          "hint": "Rewrite in-game webview/banner URLs to this menu. Requires rules/menu.yaml."
+        },
+        {
+          "key": "ui.theme",
+          "type": "select",
+          "label": "Menu Theme",
+          "default": "lime",
+          "options": ["lime", "amber", "cyan", "red"],
+          "hint": "Cosmetic only, applies to this panel."
+        },
+        {
+          "key": "ui.hide_from_capture",
+          "type": "toggle",
+          "label": "Hide From Recording",
+          "default": false,
+          "hint": "Keeps the ESP overlay out of screen recordings and screenshots. Applied by the dylib, mirrored here so both panels agree."
+        }
+      ]
+    },
+    {
+      "id": "aim",
+      "label": "AIMBOT / NATIVE",
+      "note": "These keys are consumed by the injected dylib (native/). They do nothing until the modded IPA is installed.",
+      "items": [
+        {
+          "key": "aim.enabled",
+          "type": "toggle",
+          "label": "Enable",
+          "default": false,
+          "hint": "Lock onto the closest target to the crosshair."
+        },
+        {
+          "key": "aim.smooth",
+          "type": "range",
+          "label": "Smooth",
+          "default": 4,
+          "min": 2,
+          "max": 20,
+          "step": 1,
+          "hint": "Frames taken to close the gap. Higher = slower and less visible."
+        },
+        {
+          "key": "aim.fov",
+          "type": "range",
+          "label": "FOV",
+          "default": 120,
+          "min": 10,
+          "max": 400,
+          "step": 10,
+          "unit": "px",
+          "hint": "Pixel radius around screen centre."
+        },
+        {
+          "key": "aim.bone",
+          "type": "select",
+          "label": "Target Bone",
+          "default": "head",
+          "options": ["head", "chest"],
+          "hint": "Aim point height on the target."
+        },
+        {
+          "key": "aim.visible_only",
+          "type": "toggle",
+          "label": "On Screen Only",
+          "default": false,
+          "hint": "Skip targets behind the camera."
+        }
+      ]
+    },
+    {
+      "id": "esp",
+      "label": "ESP / NATIVE",
+      "note": "Drawn by the dylib into its own overlay window above the render surface.",
+      "items": [
+        {
+          "key": "esp.enabled",
+          "type": "toggle",
+          "label": "Enable",
+          "default": false,
+          "hint": "Start the overlay."
+        },
+        {
+          "key": "esp.box",
+          "type": "toggle",
+          "label": "Box",
+          "default": true,
+          "hint": "Cornered bounding box."
+        },
+        {
+          "key": "esp.line",
+          "type": "toggle",
+          "label": "Snapline",
+          "default": true,
+          "hint": "Line from crosshair to target."
+        },
+        {
+          "key": "esp.name",
+          "type": "toggle",
+          "label": "Name",
+          "default": true,
+          "hint": "Player nickname above the box."
+        },
+        {
+          "key": "esp.hp",
+          "type": "toggle",
+          "label": "Health Bar",
+          "default": true,
+          "hint": "Vertical bar left of the box."
+        },
+        {
+          "key": "esp.distance",
+          "type": "toggle",
+          "label": "Distance",
+          "default": true,
+          "hint": "Metres."
+        },
+        {
+          "key": "esp.fov_circle",
+          "type": "toggle",
+          "label": "FOV Circle",
+          "default": false,
+          "hint": "Shows the aimbot radius."
+        },
+        {
+          "key": "esp.max_dist",
+          "type": "range",
+          "label": "Max Distance",
+          "default": 400,
+          "min": 10,
+          "max": 800,
+          "step": 10,
+          "unit": "m",
+          "hint": "Cull players beyond this range."
+        }
+      ]
+    },
+    {
+      "id": "adv",
+      "label": "ADVANCED",
+      "items": [
+        {
+          "key": "debug.verbose",
+          "type": "toggle",
+          "label": "Verbose Logs",
+          "default": false,
+          "hint": "Write bind/resolve detail to Console.app. Off = silent, which is the default for a reason."
+        },
+        {
+          "key": "rule.enable_probe",
+          "type": "toggle",
+          "label": "Verbose Trace",
+          "default": true,
+          "hint": "Log every intercepted FF flow, not just the ones a rule matched."
+        },
+        {
+          "key": "rule.strict_pin",
+          "type": "toggle",
+          "label": "Upstream Verify",
+          "default": true,
+          "hint": "Off = accept any upstream certificate (ssl_insecure per-request)."
+        }
+      ]
+    }
+  ]
+}

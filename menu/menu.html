@@ -1,0 +1,339 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="lime">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="theme-color" content="#0a0c0a">
+<title>FF PROXY</title>
+<style>
+:root{
+  --bg:#080a08; --panel:#101310; --panel2:#161a15; --line:#232a21;
+  --txt:#e8f0e4; --dim:#77836f; --dim2:#4d5648;
+  --acc:#b6ff3c; --acc-dim:#6f9c26; --warn:#ff5d5d; --warn-dim:#7a2a2a;
+  --r:14px; --mono:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,monospace;
+}
+html[data-theme="amber"]{--acc:#ffb340;--acc-dim:#9c6a1e;}
+html[data-theme="cyan"]{--acc:#3cf0ff;--acc-dim:#1e8f9c;}
+html[data-theme="red"]{--acc:#ff4d6d;--acc-dim:#9c1e34;}
+
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;padding:0;background:var(--bg);color:var(--txt);
+  font-family:var(--mono);font-size:14px;line-height:1.45;
+  -webkit-text-size-adjust:100%;overscroll-behavior:none}
+body{min-height:100vh;background-image:
+  radial-gradient(120% 60% at 50% -10%, rgba(182,255,60,.07), transparent 60%),
+  repeating-linear-gradient(0deg, rgba(255,255,255,.012) 0 1px, transparent 1px 3px)}
+body::after{content:"";position:fixed;inset:0;pointer-events:none;z-index:99;
+  background:radial-gradient(130% 90% at 50% 50%, transparent 55%, rgba(0,0,0,.55) 100%)}
+.wrap{max-width:560px;margin:0 auto;padding:env(safe-area-inset-top) 12px calc(28px + env(safe-area-inset-bottom))}
+
+header{display:flex;align-items:center;gap:10px;padding:16px 4px 12px;position:sticky;top:0;z-index:20;
+  background:linear-gradient(180deg,var(--bg) 62%,rgba(8,10,8,.85));backdrop-filter:blur(8px)}
+.mark{width:30px;height:30px;flex:0 0 30px;border-radius:9px;background:var(--acc);position:relative;
+  box-shadow:0 0 18px -2px var(--acc)}
+.mark::after{content:"";position:absolute;inset:7px 7px 7px 7px;border-radius:3px;background:var(--bg)}
+.mark::before{content:"";position:absolute;left:9px;top:9px;right:9px;height:3px;background:var(--acc);
+  box-shadow:0 5px 0 var(--acc);z-index:2}
+h1{font-size:15px;margin:0;letter-spacing:.14em;font-weight:700}
+h1 small{display:block;font-size:9px;letter-spacing:.22em;color:var(--dim);font-weight:400;margin-top:2px}
+.pill{margin-left:auto;font-size:9.5px;letter-spacing:.14em;padding:5px 9px;border-radius:999px;
+  border:1px solid var(--line);color:var(--dim);display:flex;align-items:center;gap:6px}
+.dot{width:6px;height:6px;border-radius:50%;background:var(--dim2)}
+.pill.ok .dot{background:var(--acc);box-shadow:0 0 8px var(--acc)}
+.pill.bad .dot{background:var(--warn);box-shadow:0 0 8px var(--warn)}
+
+.grp{margin:14px 0 6px}
+.grp>h2{font-size:10px;letter-spacing:.24em;color:var(--dim);margin:0 0 8px 6px;font-weight:600;display:flex;gap:8px;align-items:center}
+.grp>h2::after{content:"";flex:1;height:1px;background:linear-gradient(90deg,var(--line),transparent)}
+
+.card{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);overflow:hidden}
+.row{display:flex;align-items:center;gap:12px;padding:13px 14px;border-bottom:1px solid var(--line);
+  min-height:58px;transition:background .12s}
+.row:last-child{border-bottom:0}
+.row:active{background:var(--panel2)}
+.row .txt{flex:1;min-width:0}
+.row .lbl{font-size:13px;font-weight:600;letter-spacing:.02em}
+.row .hint{font-size:10.5px;color:var(--dim);margin-top:3px;line-height:1.35}
+.row.danger .lbl{color:var(--warn)}
+.row.danger{background:linear-gradient(90deg,rgba(255,93,93,.05),transparent 70%)}
+.row input[type=range]{width:120px;accent-color:var(--acc);background:transparent}
+.val{font-size:11px;color:var(--acc);min-width:52px;text-align:right;letter-spacing:.04em}
+.row input[type=text]{flex:0 0 110px;background:var(--bg);border:1px solid var(--line);color:var(--txt);
+  border-radius:8px;padding:9px 10px;font-family:var(--mono);font-size:12px;outline:none}
+.row input[type=text]:focus{border-color:var(--acc-dim)}
+select{background:var(--bg);border:1px solid var(--line);color:var(--txt);border-radius:8px;
+  padding:9px 10px;font-family:var(--mono);font-size:12px;outline:none}
+
+/* switch */
+.sw{flex:0 0 52px;width:52px;height:30px;position:relative;cursor:pointer}
+.sw input{position:absolute;opacity:0;width:100%;height:100%;margin:0;cursor:pointer;z-index:2}
+.sw .track{position:absolute;inset:0;border-radius:999px;background:#1c211a;border:1px solid var(--line);
+  transition:background .16s,border-color .16s}
+.sw .knob{position:absolute;top:4px;left:4px;width:20px;height:20px;border-radius:50%;background:#4a5344;
+  transition:transform .16s cubic-bezier(.4,1.4,.6,1),background .16s}
+.sw input:checked~.track{background:var(--acc-dim);border-color:var(--acc)}
+.sw input:checked~.knob{transform:translateX(22px);background:var(--acc);box-shadow:0 0 10px -1px var(--acc)}
+.row.danger .sw input:checked~.track{background:var(--warn-dim);border-color:var(--warn)}
+.row.danger .sw input:checked~.knob{background:var(--warn);box-shadow:0 0 10px -1px var(--warn)}
+
+.bar{display:flex;gap:8px;margin:16px 0 4px}
+button{flex:1;font-family:var(--mono);font-size:10.5px;letter-spacing:.16em;font-weight:600;
+  padding:14px 10px;border-radius:11px;border:1px solid var(--line);background:var(--panel);
+  color:var(--txt);cursor:pointer;transition:transform .08s,border-color .14s}
+button:active{transform:scale(.975)}
+button.pri{border-color:var(--acc-dim);color:var(--acc);background:linear-gradient(180deg,rgba(182,255,60,.08),transparent)}
+button.warn{border-color:var(--warn-dim);color:var(--warn)}
+
+.stats{display:grid;grid-template-columns:repeat(3,1fr);gap:1px;background:var(--line);
+  border:1px solid var(--line);border-radius:var(--r);overflow:hidden;margin-top:12px}
+.stats div{background:var(--panel);padding:11px 10px}
+.stats b{display:block;font-size:14px;letter-spacing:.02em}
+.stats span{display:block;font-size:9px;letter-spacing:.18em;color:var(--dim);margin-top:3px}
+
+pre.log{margin:10px 0 0;padding:12px;background:#050605;border:1px solid var(--line);border-radius:var(--r);
+  font-size:10.5px;color:#93a389;max-height:230px;overflow:auto;white-space:pre-wrap;word-break:break-all;
+  -webkit-overflow-scrolling:touch}
+pre.log:empty{display:none}
+.toast{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(20px + env(safe-area-inset-bottom));
+  background:var(--acc);color:#0a0c0a;font-size:11px;font-weight:700;letter-spacing:.1em;
+  padding:11px 18px;border-radius:999px;opacity:0;pointer-events:none;transition:opacity .2s;z-index:100}
+.toast.on{opacity:1}
+footer{font-size:9.5px;color:var(--dim2);text-align:center;padding:20px 0 6px;letter-spacing:.1em}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="mark"></div>
+    <h1>FF PROXY<small id="sub">CONTROL PANEL</small></h1>
+    <div class="pill" id="pill"><span class="dot"></span><span id="pilltext">SYNC</span></div>
+  </header>
+
+  <div id="groups"></div>
+
+  <div class="bar">
+    <button class="pri" id="refresh">REFRESH</button>
+    <button id="logbtn">TRACE</button>
+    <button class="warn" id="resetbtn">RESET ALL</button>
+  </div>
+
+  <div class="stats">
+    <div><b id="s1">-</b><span>RULES</span></div>
+    <div><b id="s2">-</b><span>FLOWS</span></div>
+    <div><b id="s3">-</b><span>BLOCKED</span></div>
+  </div>
+
+  <pre class="log" id="log"></pre>
+  <footer id="foot">menu.ff &middot; state/state.json</footer>
+</div>
+<div class="toast" id="toast"></div>
+
+<script>
+"use strict";
+var S = { state: null, dirty: {}, timer: null, busy: false };
+
+function $(id){ return document.getElementById(id); }
+
+function toast(msg, bad){
+  var t = $("toast");
+  t.textContent = msg;
+  t.style.background = bad ? "var(--warn)" : "var(--acc)";
+  t.classList.add("on");
+  clearTimeout(t._h);
+  t._h = setTimeout(function(){ t.classList.remove("on"); }, 1400);
+}
+
+function api(path, opts){
+  return fetch(path, opts).then(function(r){
+    if(!r.ok) throw new Error("HTTP " + r.status);
+    return r.json();
+  });
+}
+
+function pill(ok, text){
+  var p = $("pill");
+  p.classList.toggle("ok", !!ok);
+  p.classList.toggle("bad", !ok);
+  $("pilltext").textContent = text;
+}
+
+/* ------------------------------------------------------------------ render */
+function render(state){
+  S.state = state;
+  var values = state.values || {};
+  var defs = state.definitions || {};
+  var groups = state.groups || [];
+  var host = $("groups");
+  var openFocus = document.activeElement && document.activeElement.dataset ? document.activeElement.dataset.key : null;
+  host.innerHTML = "";
+
+  groups.forEach(function(g){
+    var sec = document.createElement("section");
+    sec.className = "grp";
+    var h = document.createElement("h2");
+    h.textContent = g.label || g.id;
+    sec.appendChild(h);
+    var card = document.createElement("div");
+    card.className = "card";
+
+    (g.items || []).forEach(function(item){
+      var key = item.key;
+      var type = item.type || "toggle";
+      var value = values.hasOwnProperty(key) ? values[key] : item.default;
+      var row = document.createElement("div");
+      row.className = "row" + (item.danger ? " danger" : "");
+
+      var txt = document.createElement("div");
+      txt.className = "txt";
+      var lbl = document.createElement("div");
+      lbl.className = "lbl";
+      lbl.textContent = item.label || key;
+      var hint = document.createElement("div");
+      hint.className = "hint";
+      hint.textContent = item.hint || key;
+      txt.appendChild(lbl);
+      txt.appendChild(hint);
+      row.appendChild(txt);
+
+      if(type === "toggle"){
+        var sw = document.createElement("label");
+        sw.className = "sw";
+        var cb = document.createElement("input");
+        cb.type = "checkbox";
+        cb.checked = !!value;
+        cb.dataset.key = key;
+        cb.addEventListener("change", function(){ push(key, cb.checked, cb); });
+        var track = document.createElement("span"); track.className = "track";
+        var knob = document.createElement("span"); knob.className = "knob";
+        sw.appendChild(cb); sw.appendChild(track); sw.appendChild(knob);
+        row.appendChild(sw);
+      } else if(type === "range"){
+        var valEl = document.createElement("div");
+        valEl.className = "val";
+        valEl.textContent = value + (item.unit || "");
+        var rng = document.createElement("input");
+        rng.type = "range";
+        rng.min = item.min != null ? item.min : 0;
+        rng.max = item.max != null ? item.max : 100;
+        rng.step = item.step != null ? item.step : 1;
+        rng.value = value;
+        rng.dataset.key = key;
+        var queue = null;
+        rng.addEventListener("input", function(){
+          valEl.textContent = rng.value + (item.unit || "");
+          clearTimeout(queue);
+          queue = setTimeout(function(){ push(key, Number(rng.value), null, true); }, 220);
+        });
+        row.appendChild(rng);
+        row.appendChild(valEl);
+      } else if(type === "select"){
+        var sel = document.createElement("select");
+        (item.options || []).forEach(function(o){
+          var op = document.createElement("option");
+          op.value = o; op.textContent = o;
+          if(o === value) op.selected = true;
+          sel.appendChild(op);
+        });
+        sel.dataset.key = key;
+        sel.addEventListener("change", function(){ push(key, sel.value, null, true); });
+        row.appendChild(sel);
+      } else {
+        var inp = document.createElement("input");
+        inp.type = "text";
+        inp.value = value == null ? "" : value;
+        inp.placeholder = item.placeholder || "";
+        inp.dataset.key = key;
+        var tmr = null;
+        inp.addEventListener("input", function(){
+          clearTimeout(tmr);
+          tmr = setTimeout(function(){ push(key, inp.value, null, true); }, 400);
+        });
+        row.appendChild(inp);
+      }
+
+      card.appendChild(row);
+      if(openFocus === key){
+        setTimeout(function(){
+          var el = card.querySelector('[data-key="' + key + '"]');
+          if(el) el.focus();
+        }, 0);
+      }
+    });
+
+    sec.appendChild(card);
+    host.appendChild(sec);
+  });
+
+  if(values["ui.theme"]){
+    document.documentElement.setAttribute("data-theme", values["ui.theme"]);
+  }
+
+  var info = state.info || {};
+  $("s1").textContent = info.rules != null ? info.rules : "-";
+  $("s2").textContent = info.flows != null ? info.flows : "-";
+  $("s3").textContent = info.blocked != null ? info.blocked : "-";
+  $("foot").textContent = (info.address || "menu.ff") + " \u00b7 " + (info.rules_file || "state/state.json");
+}
+
+/* ------------------------------------------------------------------- write */
+function push(key, value, el, quiet){
+  S.dirty[key] = value;
+  var payload = {};
+  payload[key] = value;
+  S.busy = true;
+  api("/api/set", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload)
+  }).then(function(st){
+    S.busy = false;
+    delete S.dirty[key];
+    var rej = (st.applied && st.applied.rejected) || {};
+    if(rej[key]){ toast("REJECTED: " + rej[key], true); if(el) el.blur(); }
+    else if(!quiet){ toast("OK  " + key); }
+    pill(true, "LIVE");
+    render(st);
+  }).catch(function(e){
+    S.busy = false;
+    pill(false, "OFFLINE");
+    toast("FAILED: " + e.message, true);
+  });
+}
+
+function load(){
+  if(S.busy) return;
+  api("/api/state").then(function(st){
+    pill(true, "LIVE");
+    render(st);
+  }).catch(function(e){
+    pill(false, "OFFLINE");
+  });
+}
+
+function loadLog(){
+  var el = $("log");
+  if(el.style.display === "block"){ el.style.display = "none"; return; }
+  fetch("/api/log?n=60").then(function(r){ return r.text(); }).then(function(t){
+    el.textContent = t;
+    el.style.display = "block";
+    el.scrollTop = el.scrollHeight;
+  });
+}
+
+$("refresh").addEventListener("click", function(){ load(); toast("SYNCED"); });
+$("logbtn").addEventListener("click", loadLog);
+$("resetbtn").addEventListener("click", function(){
+  if(!confirm("Reset every setting to default?")) return;
+  api("/api/reset", { method: "POST" }).then(function(st){
+    toast("RESET DONE"); render(st);
+  }).catch(function(e){ toast("FAILED", true); });
+});
+
+load();
+setInterval(load, 5000);
+document.addEventListener("visibilitychange", function(){ if(!document.hidden) load(); });
+</script>
+</body>
+</html>

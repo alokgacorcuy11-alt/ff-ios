@@ -1,0 +1,135 @@
+# =====================================================================
+# ff-proxy ruleset  -  Free Fire (Garena)
+# ---------------------------------------------------------------------
+# Rules are evaluated in file order. Every rule that matches is applied.
+# stage: request | response | both     (default: response)
+#
+# ACTIONS
+#   log            record only (no modification) - harmless, use it to map
+#   pass           explicit no-op
+#   delay          params: {ms: 300}
+#   header         params: {set: {...}, strip: [..]}       headers
+#   block          params: {status: 403, body: "str:denied"}   synthetic reply
+#   redirect       params: {to: "http://1.2.3.4/x", status: 302}
+#   mock           params: {status: 200, body_file: rules/mock/x.json}
+#   rewrite_json   params: {set: {path: value}, delete: [path], merge: {path: {}}}
+#   pb_set         params: {set: {"1.5": 99}, set_bytes: {"2.1": "str:x"}}
+#   bytes_sub      params: {find: "hex:0011", replace: "hex:0022", replace_all: true}
+#
+# BODY SPECS (anywhere a body is expected)
+#   hex:deadbeef    str:plain text    b64:AAAA    (bare text = utf-8)
+# =====================================================================
+
+version: 1
+
+defaults:
+  log: true
+
+rules:
+  # ---------------------------------------------------------------- RECON
+  # Leave these on. They cost nothing and they build the map of what the
+  # client actually talks to. Read logs/flows.jsonl or run tools/hosts.py.
+  - name: map-all-ff-traffic
+    action: log
+    stage: response
+    match:
+      host_regex: '(?i)(garena|freefire|booyah|ggblue)'
+    comment: baseline trace, no modification
+
+  # ---------------------------------------------------------------- FLAGS
+  # Remote-config style endpoint. Every game ships feature flags / limits
+  # here. Rewriting them is the cheapest real change you can make over HTTP.
+  - name: probe-config
+    enabled: false
+    action: log
+    stage: response
+    match:
+      host_regex: '(?i)(garena|freefire)'
+      path_regex: '(?i)/(config|remote|setting|abtest|experiment)'
+    comment: enable, play one match, then read the body in the trace
+
+  # EXAMPLE - flip flags once you know the schema (bodies are json here):
+  # - name: config-override
+  #   enabled: false
+  #   action: rewrite_json
+  #   stage: response
+  #   match:
+  #     host_regex: '(?i)freefire'
+  #     path_regex: '(?i)/config'
+  #   params:
+  #     set:
+  #       "data.anticheat_enabled": false        # <- real key TBD from trace
+  #       "data.report_enabled": false
+  #     merge:
+  #       "data.limits": { "max_players": 50 }
+
+  # ------------------------------------------------------------ HOTUPDATE
+  # If the client pulls a manifest over HTTPS you can point it at your host.
+  - name: probe-hotupdate
+    enabled: false
+    action: log
+    stage: response
+    match:
+      path_regex: '(?i)(manifest|hotupdate|patch|version|res_version|abtest)'
+    comment: find the manifest, then redirect or mock it
+
+  # - name: redirect-manifest
+  #   enabled: false
+  #   action: mock
+  #   stage: response
+  #   match:
+  #     host_regex: '(?i)freefire'
+  #     path_regex: '(?i)hotupdate/manifest'
+  #   params:
+  #     status: 200
+  #     content_type: application/json
+  #     body_file: rules/mock/manifest.json
+
+  # ------------------------------------------------------------------- AUTH
+  # Login / oauth / token exchange. Inspect first - never blind-patch auth
+  # or you will insta-logout and possibly flip a suspicion counter.
+  - name: probe-auth
+    enabled: false
+    action: log
+    stage: both
+    match:
+      path_regex: '(?i)(oauth|login|token|auth|session|guest)'
+    comment: look at the token response shape before touching it
+
+  # ---------------------------------------------------------------- ANTI
+  # Attestation / integrity / anti-cheat endpoints that are HTTP-based.
+  # Log them first, see whether they are HTTP at all.
+  - name: probe-anticheat
+    enabled: false
+    action: log
+    stage: both
+    match:
+      path_regex: '(?i)(attest|integrity|anticheat|ac_|report|ban|risk|device)'
+    comment: if any of these are HTTP, they become interceptable
+
+  # EXAMPLE - stub a client-side integrity report:
+  # - name: stub-integrity-report
+  #   enabled: false
+  #   action: mock
+  #   stage: request
+  #   match:
+  #     host_regex: '(?i)garena'
+  #     path_regex: '(?i)integrity'
+  #   params:
+  #     status: 200
+  #     content_type: application/json
+  #     body: 'str:{"code":0,"msg":"ok"}'
+
+  # ---------------------------------------------------------- LATENCY TEST
+  # Prove the hook is live end to end. Enable this, relaunch FF, and the
+  # client should stall on the first matching call.
+  - name: prove-hook
+    enabled: false
+    action: delay
+    stage: request
+    match:
+      host_regex: '(?i)(garena|freefire)'
+      path_regex: '(?i)/'
+    params:
+      ms: 3000
+    comment: 3s stall = your rules engine is intercepting correctly

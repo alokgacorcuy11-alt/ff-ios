@@ -1,0 +1,69 @@
+# ff-proxy configuration
+# ------------------------------------------------------------------
+
+# where mitmproxy listens. 0.0.0.0 = reachable from your iPhone over WiFi.
+listen_host: 0.0.0.0
+listen_port: 8080
+
+# mitmproxy mode list. "regular" = explicit HTTP proxy (WiFi proxy setting).
+# other useful values: "socks5", "transparent" (needs a redirector), 
+# "upstream:http://127.0.0.1:9090" (chain behind another proxy).
+mode:
+  - regular
+
+# mitmproxy state dir (CA keys live here)
+# confdir: C:\Users\alokg\.mitmproxy
+
+# trace output
+log_dir: logs
+
+# state written by the menu panel (live feature values)
+state_dir: state
+menu_html: menu/menu.html
+
+# rulesets - all of them load, in this order. hot-reload on any change.
+rules_file:
+  - rules/freefire.yaml
+  - rules/menu.yaml
+
+# which hosts count as "Free Fire". Refine this after running tools/hosts.py.
+ff_hosts_regex: >-
+  (?i)(garena\.com|garenanow\.com|garena\.co|freefiremobile\.com|freefire\.com|
+  freefireind\.in|booyah\.com|ggblue\.com|ff\.garena|garena\.sg|garena\.com\.br)
+
+# never even decrypt this (banking, apple, ubisoft...). keeps CPU + stealth sane.
+ignore_hosts:
+  - '(^|\.)apple\.com$'
+  - '(^|\.)icloud\.com$'
+  - '(^|\.)mzstatic\.com$'
+  - '(^|\.)akamai.*\.net$'
+  - '(^|\.)google\.com$'
+  - '(^|\.)googleapis\.com$'
+  - '(^|\.)doubleclick\.net$'
+  - '(^|\.)facebook\.com$'
+  - '(^|\.)fbcdn\.net$'
+
+only_ff: true
+
+# ---------------------------------------------------------------- kill switches
+# Used by the menu's net.block_telemetry / net.block_ads toggles.
+telemetry_hosts_regex: >-
+  (?i)(analytic|telemetry|report|metrics|crash|sentry|bugsnag|firebase|
+  adjust\.com|appsflyer|datadog|newrelic|loggly)
+
+ads_hosts_regex: >-
+  (?i)(^|\.)(ad|ads|advert|adservice|admob|adcolony|applovin|vungle|unityads|
+  ironsrc|chartboost|pangle|bytedance|mintegral|mopub|doubleclick|adsystem|
+  adnxs|tapjoy|fyber|smaato|inmobi)\.
+
+# keep false for normal play (fast, small log). true = log hex bodies.
+capture_bodies: false
+max_capture_bytes: 32768
+
+# false = verify upstream certs normally. true = accept anything (only when a
+# game update breaks pinning and you need to see the traffic).
+ssl_insecure: false
+
+# tiny http server that hands the mitmproxy CA to the iPhone
+ca_server_host: 0.0.0.0
+ca_server_port: 8081

@@ -160,9 +160,14 @@ jobs:
           if ! make RELEASE=1 -j"$(sysctl -n hw.ncpu)" > build.log 2>&1; then
             echo "::error title=build::make failed - full log is attached as build-log"
             tail -150 build.log
-            # Compiler diagnostics as annotations, so the reason for a red build
-            # is readable from the Checks API instead of only from the job log.
-            grep -nE '(:|^)(error|fatal error):' build.log | head -40 || true
+            # Publish the tail as annotations. A compiler diagnostic and a broken
+            # toolchain look nothing alike, and a job log cannot be read back
+            # from outside without a token - so send the raw tail, not a grep for
+            # one particular shape of error.
+            tail -30 build.log | while IFS= read -r l; do
+              m=$(printf '%s' "$l" | sed 's/%/%25/g; s/\r//g')
+              [ -n "$m" ] && printf '::error title=build-tail::%s\n' "$m"
+            done
             grep -E '(:|^)(error|fatal error):' build.log | head -40 | while IFS= read -r l; do
               m=$(printf '%s' "$l" | sed 's/%/%25/g; s/\r//g')
               printf '::error title=compiler::%s\n' "$m"

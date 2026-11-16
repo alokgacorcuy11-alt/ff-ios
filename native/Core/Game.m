@@ -397,9 +397,13 @@ static BOOL resolveCameraTransform(void) {
 
     if (!gCamTrSwept) {
         gCamTrSwept = YES;
-        FFLOG(@"camera transform: none of %lu candidate(s) behaves like a "
-              @"Transform - aim and the matrix w2s path stay off",
-              (unsigned long)cands.count);
+        // Routed through err() rather than the log: this is the one place the
+        // candidate count is read, and a value read only by FFLOG is a
+        // write-only variable in a RELEASE build (-Werror). It also belongs in
+        // DIAGNOSTICS anyway - it is the answer to "why is the aim dead".
+        err(@"camera transform: none of %lu candidate(s) behaves like a Transform "
+            @"(tried %d) - aim and the matrix w2s path stay off",
+            (unsigned long)cands.count, tried);
     }
     return NO;
 }

@@ -348,7 +348,11 @@ static void resolveTailFields(void) {
     BOOL up = [self lift];
     FFLOG(@"inject selfTest: down=%d move=%d up=%d space=%s",
           down, moved, up, gPointSpace ? "points" : "pixels");
-    return down && up;
+    // `moved` belongs in the verdict, not only in the log: a self-test that
+    // cannot drag has not proved the path an aimbot correction needs. Keeping it
+    // in the return also keeps it out of -Wunused-but-set-variable in a RELEASE
+    // build, where FFLOG does not exist.
+    return down && moved && up;
 }
 
 @end

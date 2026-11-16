@@ -31,6 +31,9 @@ SUITES = [
     ("metadata_hunt ", HERE / "test_metadata.py"),
     ("math          ", HERE / "test_math.py"),
     ("sources       ", HERE / "test_sources.py"),
+    # catches variables that only FFLOG reads - write-only in a RELEASE build,
+    # which is -Werror there and cost a CI round to find
+    ("release-lint  ", ROOT / "tools" / "lint_logonly.py"),
 ]
 
 # The shell suites are not Python, so they need their own runner. They are

@@ -60,8 +60,17 @@ typedef NS_ENUM(NSInteger, RowKind) { RowToggle, RowRange, RowSegment, RowInfo }
 
 - (void)buildRows {
     self.rows = [NSMutableArray array];
-    #define R(g,l,k,kind) do { USRow *r=[USRow new]; r.group=g; r.label=l; r.key=k; \
-        r.kind=kind; [self.rows addObject:r]; } while(0)
+    // The last parameter must NOT be called `kind`: the preprocessor replaces
+    // every occurrence of a parameter name, including the token after the dot in
+    // `r.kind`, so `r.kind = kind` became `r.RowToggle = RowToggle` and clang
+    // reported "property 'RowToggle' not found on object of type 'USRow *'" nine
+    // times. A parameter name that collides with a member name is a trap that
+    // reads as correct.
+    #define R(grp, lbl, keyName, kindValue) do {                            \
+        USRow *row = [USRow new];                                           \
+        row.group = grp; row.label = lbl; row.key = keyName;                \
+        row.kind = kindValue; [self.rows addObject:row];                    \
+    } while (0)
 
     R(@"TARGETING", @"Enable",      kFFAimEnabled,  RowToggle);
     R(@"TARGETING", @"Smooth",      kFFAimSmooth,   RowRange);

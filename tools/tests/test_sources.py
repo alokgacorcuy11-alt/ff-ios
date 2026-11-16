@@ -1188,6 +1188,84 @@ def audit_script_modes():
           else f"-> {len(lines)} script(s) at 100755")
 
 
+def macro_param_collisions(raw: str) -> list:
+    """#define parameters that collide with a member of a macro-local variable."""
+    lines = raw.splitlines()
+    out = []
+    i = 0
+    while i < len(lines):
+        m = re.match(r"\s*#\s*define\s+([A-Za-z_]\w*)\s*\(([^)]*)\)", lines[i])
+        if not m:
+            i += 1
+            continue
+        name = m.group(1)
+        params = {x.strip() for x in m.group(2).split(",") if x.strip()}
+        # Start from the WHOLE #define line, not just the parameter list: the
+        # macro-local declaration often sits there, and leaving it out is why the
+        # first version of this check found nothing on a macro that really did
+        # break the build.
+        body = [lines[i]]
+        j = i
+        while lines[j].rstrip().endswith("\\") and j + 1 < len(lines):
+            j += 1
+            body.append(lines[j])
+        blob = "\n".join(body)
+        # Only a collision with a variable DECLARED INSIDE the macro counts.
+        # IL2CPP.m deliberately names a parameter after the struct member it
+        # assigns (`R(field, ...)` then `gApi.field = ...`): there the
+        # substitution is the point. The bug is `USRow *row` declared in the body
+        # and then `row.kind = kind`, where the parameter overwrites the member
+        # name of a local.
+        locals_ = set(re.findall(
+            r"\b(?:US\w+|NS\w+|Il2Cpp\w+|CGFloat|BOOL|int|double|float|size_t|"
+            r"uint32_t|char)\s*\*?\s*([a-z_]\w*)\s*=", blob))
+        for par in params:
+            if any(re.search(rf"\b{re.escape(loc)}\s*\.\s*{re.escape(par)}\b", blob)
+                   for loc in locals_):
+                out.append(f"line {i + 1}: {name}(...) parameter {par} collides with "
+                           f"a member of a local")
+        i = j + 1
+    return out
+
+
+def audit_macro_params():
+    """A #define parameter name that also appears as a member of a variable the
+    macro declares is replaced everywhere.
+
+    `#define R(g,l,k,kind) ... r.kind=kind ...` expands to `r.RowToggle=RowToggle`,
+    because `kind` is a token in `r . kind` too. clang then reports
+    "property 'RowToggle' not found on object of type 'USRow *'" at every call
+    site - which is what happened on the first successful CI build, nine times.
+    """
+    # the check has to be able to fail, and to not fire on the intentional idiom
+    probe_bad = ("#define R(g,l,k,kind) do { USRow *r=[USRow new]; "
+                 "r.kind=kind; } while(0)\n")
+    check("macro audit catches the collision that broke the build",
+          len(macro_param_collisions(probe_bad)) == 1,
+          f"-> {macro_param_collisions(probe_bad)}")
+
+    # ...including in the exact shape it had: body split across continuations,
+    # with the local declared on the first line
+    probe_multiline = (
+        "#define R(g,l,k,kind) do { USRow *r=[USRow new]; r.group=g; \\\n"
+        "    r.kind=kind; [self.rows addObject:r]; } while(0)\n")
+    check("macro audit handles a continued body with a first-line local",
+          len(macro_param_collisions(probe_multiline)) == 1,
+          f"-> {macro_param_collisions(probe_multiline)}")
+
+    probe_ok = ("#define R(field, name, req) do { gApi.field = "
+                "(typeof(gApi.field))findSym(name); } while(0)\n")
+    check("macro audit allows the member-naming idiom",
+          macro_param_collisions(probe_ok) == [],
+          f"-> {macro_param_collisions(probe_ok)}")
+
+    for p in sources():
+        bad = macro_param_collisions(p.read_text(encoding="utf-8", errors="replace"))
+        check(f"{p.relative_to(ROOT).as_posix()}: no macro parameter collides with "
+              f"a member of a macro-local", not bad,
+              "-> " + "; ".join(bad) if bad else "")
+
+
 def main() -> int:
     print("=" * 66)
     print(" source audit - native dylib + menu assets")
@@ -1227,6 +1305,8 @@ def main() -> int:
     audit_import_safety()
     print()
     audit_script_modes()
+    print()
+    audit_macro_params()
     print()
     if FAIL:
         print(f"{FAIL} check(s) FAILED")

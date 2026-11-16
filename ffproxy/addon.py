@@ -27,7 +27,21 @@ import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from mitmproxy import ctx, http
+# mitmproxy is only needed to RUN this addon, not to import it. The pure
+# helpers in this module (_collect_urls, _walk_strings, the protobuf patching)
+# are unit-tested by tools/selftest.py without the proxy stack installed, and a
+# top-level import made that whole suite depend on mitmproxy being present -
+# which is exactly how CI failed while the same suite passed locally.
+#
+# `http` appears in annotations only as a name (PEP 563, see __future__ above);
+# every real use is inside a method body. So None here is safe at import time
+# and is caught explicitly in running() if someone tries to run the addon
+# without the dependency.
+try:
+    from mitmproxy import ctx, http
+except ImportError:                                   # pragma: no cover
+    ctx = None                                        # type: ignore[assignment]
+    http = None                                       # type: ignore[assignment]
 
 from . import jsonpath, pb
 from .control import ControlState
@@ -139,6 +153,11 @@ class FfAddon:
 
     # ------------------------------------------------------------ lifecycle
     def running(self) -> None:
+        if ctx is None or http is None:
+            raise RuntimeError(
+                "mitmproxy is not installed - this addon cannot run without it. "
+                "`pip install -r requirements.txt`. (Importing the module works "
+                "without it on purpose: the pure helpers are unit-tested that way.)")
         self._fh = self.log_path.open("a", encoding="utf-8")
         ctx.log.info(f"[ff] trace   -> {self.log_path.resolve()}")
         ctx.log.info(f"[ff] rules   -> {len(self.store.rules)} loaded from {self.store.path}")

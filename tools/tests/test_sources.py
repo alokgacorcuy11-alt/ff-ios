@@ -30,7 +30,9 @@ from __future__ import annotations
 import json
 import pathlib
 import re
+import subprocess
 import sys
+import textwrap
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent.parent
 NATIVE = ROOT / "native"
@@ -1008,6 +1010,180 @@ def audit_offline_dump():
           "ABSENT" in (s.get("note") or ""), f"-> {s.get('note')!r}")
 
 
+def strip_comment_text(text: str) -> str:
+    """Remove Python # comments, keeping line structure.
+
+    strip_literals above is written for ObjC (// and /* */) and leaves Python
+    comments alone, which is wrong for the .py audits: a commented-out import is
+    not an import, and a comment that merely mentions one is not either.
+    """
+    out = []
+    for line in text.splitlines(keepends=True):
+        i = line.find("#")
+        if i < 0:
+            out.append(line)
+            continue
+        head = line[:i]
+        # a '#' inside a string literal is not a comment - good enough for the
+        # sources here, where the only such cases are colours in formats
+        if head.count('"') % 2 or head.count("'") % 2:
+            out.append(line)
+            continue
+        out.append(head.rstrip() + "\n")
+    return "".join(out)
+
+
+def unguarded_optional_imports(text: str) -> list:
+    """Optional-dependency import lines that are NOT inside a try/except.
+
+    A plain regex for the import line cannot tell a guarded import from an
+    unguarded one - which is exactly the mistake the first version of this audit
+    made: it flagged `import yaml` after that line had already been moved inside
+    `try: ... except ImportError`. So walk back to the nearest less-indented line
+    and ask whether it is a `try:`.
+    """
+    lines = strip_comment_text(text).splitlines()
+    bad = []
+    for i, line in enumerate(lines):
+        if not re.match(r"\s*(from|import)\s+(mitmproxy|dnslib|yaml)\b", line):
+            continue
+        indent = len(line) - len(line.lstrip())
+        guarded = False
+        for j in range(i - 1, max(-1, i - 8), -1):
+            prev = lines[j]
+            if not prev.strip():
+                continue
+            if len(prev) - len(prev.lstrip()) < indent:
+                guarded = prev.strip() == "try:"
+                break
+        if not guarded:
+            bad.append(f"line {i + 1}: {line.strip()}")
+    return bad
+
+
+def audit_import_safety():
+    """A test must not need an optional heavy dependency to import the module it
+    tests. ffproxy/addon.py had `from mitmproxy import ctx, http` at module
+    scope, so tools/selftest.py - which only exercises the pure helpers - failed
+    the moment mitmproxy was missing or broken. That is how CI failed on the
+    first run while the same suite passed here.
+    """
+    addon = (ROOT / "ffproxy" / "addon.py").read_text(encoding="utf-8")
+    code = strip_comment_text(addon)
+
+    # static: the import must sit inside a try/except ImportError
+    safe = re.search(r"try:\s*\n\s+from mitmproxy import[^\n]*\n\s*except ImportError", code)
+    check("addon.py imports mitmproxy defensively", safe is not None,
+          "" if safe else "-> a top-level mitmproxy import makes the test suite "
+                          "depend on it")
+    check("addon.py fails loudly when the addon is actually run without it",
+          "mitmproxy is not installed" in addon)
+
+    # nothing else a test imports may pull in an optional dep at import time
+    for name in ("jsonpath", "pb", "control", "menu_api", "rules"):
+        t = (ROOT / "ffproxy" / f"{name}.py").read_text(encoding="utf-8")
+        bad = unguarded_optional_imports(t)
+        check(f"ffproxy/{name}.py has no optional import at module scope",
+              not bad, "-> " + "; ".join(bad) if bad else "")
+
+    # behavioural: import it with mitmproxy blocked, in a subprocess
+    probe = textwrap.dedent("""
+        import sys, importlib.abc, pathlib, tempfile
+
+        BLOCKED = ("mitmproxy", "yaml")
+
+        class Block(importlib.abc.MetaPathFinder):
+            def find_spec(self, name, *a, **k):
+                if name.split(".")[0] in BLOCKED:
+                    raise ImportError("blocked on purpose for this test")
+                return None
+
+        sys.meta_path.insert(0, Block())
+
+        import ffproxy.addon as addon
+        assert callable(addon._collect_urls), "helper missing"
+        assert callable(addon._walk_strings), "helper missing"
+        urls = addon._collect_urls(b'x https://a.b/c y https://d.e/f')
+        assert len(urls) == 2, urls
+
+        # rules.py: same rule, and it must say what is missing rather than raise
+        import ffproxy.rules as rules
+        assert rules.yaml is None, "yaml should be blocked in this subprocess"
+        p = pathlib.Path(tempfile.mkdtemp()) / "r.yaml"
+        p.write_text("rules: []\\n", encoding="utf-8")
+        store = rules.RuleStore([p])
+        assert store.reload() is False, "a missing parser must not be 'success'"
+        assert "pyyaml is not installed" in (store.error or ""), store.error
+
+        print("imported and used without mitmproxy or pyyaml")
+    """)
+    r = subprocess.run([sys.executable, "-c", probe], cwd=str(ROOT),
+                       capture_output=True, text=True, encoding="utf-8",
+                       errors="replace")
+    check("ffproxy.addon imports and works with mitmproxy unavailable",
+          r.returncode == 0 and "without mitmproxy" in (r.stdout or ""),
+          f"-> rc={r.returncode} {(r.stderr or '').strip().splitlines()[-1:] or ''}")
+
+
+def audit_workflow():
+    """The workflow is infrastructure that only fails in CI, where a mistake
+    costs a runner and is invisible without a token. Check what can be checked
+    statically - and in particular that the compile step cannot be skipped by an
+    unrelated test failure, which is what happened on the very first run.
+    """
+    try:
+        import yaml
+    except ImportError:                                   # pragma: no cover
+        check("pyyaml available for the workflow audit", False,
+              "-> install requirements.txt; this audit is the only guard on the CI graph")
+        return
+
+    wf_path = ROOT / ".github" / "workflows" / "build-and-package.yml"
+    check("workflow file present", wf_path.exists())
+    if not wf_path.exists():
+        return
+    wf = yaml.safe_load(wf_path.read_text(encoding="utf-8"))
+    jobs = wf.get("jobs") or {}
+
+    def needs(job):
+        n = job.get("needs")
+        return [] if n is None else ([n] if isinstance(n, str) else list(n))
+
+    for name, job in jobs.items():
+        for dep in needs(job):
+            check(f"workflow: {name} needs an existing job ({dep})", dep in jobs)
+
+    # The one that bit: offline-tests failing skipped the dylib build entirely,
+    # so a broken Python test meant no compiler output to read.
+    check("workflow: the dylib build is not gated on the test suite",
+          "offline-tests" not in needs(jobs.get("build-dylib", {})),
+          "-> a lint failure would hide the compiler output again")
+
+    # Compiler output and test output must both survive a failing run.
+    logs = []
+    for name, job in jobs.items():
+        for step in job.get("steps") or []:
+            if step.get("uses", "").startswith("actions/upload-artifact"):
+                logs.append((name, step.get("with", {}).get("name"), step.get("if"),
+                             step.get("with", {}).get("path")))
+    names = {n for _j, n, _i, _p in logs}
+    check("workflow: the compiler log is uploaded", "build-log" in names)
+    check("workflow: the test log is uploaded", "tests-log" in names)
+    check("workflow: the test log is uploaded even when tests fail",
+          any(n == "tests-log" and i == "always()" for _j, n, i, _p in logs))
+
+    # Every script the workflow runs must exist, or the step dies at line 1.
+    refs = set()
+    for job in jobs.values():
+        for step in job.get("steps") or []:
+            body = step.get("run") or ""
+            refs |= set(re.findall(r"(?:^|\s)((?:tools|native|menu)/[\w./-]+\.(?:py|sh|js))",
+                                   body, re.M))
+    missing = sorted(r for r in refs if not (ROOT / r).exists())
+    check("workflow: every script it runs exists", not missing,
+          "-> " + "; ".join(missing) if missing else f"-> {len(refs)} referenced")
+
+
 def main() -> int:
     print("=" * 66)
     print(" source audit - native dylib + menu assets")
@@ -1043,6 +1219,10 @@ def main() -> int:
     audit_resolver()
     print()
     audit_offline_dump()
+    print()
+    audit_import_safety()
+    print()
+    audit_workflow()
     print()
     if FAIL:
         print(f"{FAIL} check(s) FAILED")

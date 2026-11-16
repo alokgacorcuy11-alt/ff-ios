@@ -12,7 +12,13 @@ import threading
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
-import yaml
+# pyyaml is needed to READ a rules file, not to import this module. The same
+# rule as ffproxy/addon.py: tools/selftest.py imports Rule model classes without
+# it, and a test suite must not fail because an optional parser is absent.
+try:
+    import yaml
+except ImportError:                                   # pragma: no cover
+    yaml = None                                       # type: ignore[assignment]
 
 KNOWN_ACTIONS = {
     "log",           # record only
@@ -128,6 +134,11 @@ class RuleStore:
             rules: List[Rule] = []
             defaults: Dict[str, Any] = {}
             for path in self.paths:
+                if yaml is None:
+                    self.error = ("pyyaml is not installed - rules cannot be "
+                                  "loaded (pip install -r requirements.txt)")
+                    self._mtimes = self._stamp()
+                    return False
                 try:
                     raw = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
                 except Exception as e:  # keep the previous ruleset on a broken file

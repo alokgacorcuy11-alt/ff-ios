@@ -55,9 +55,26 @@ jobs:
       - name: install deps
         run: python -m pip install -q pyyaml mitmproxy dnslib
       - name: every offline suite
-        run: python tools/tests/run_all.py
+        run: |
+          set -euo pipefail
+          # tee so the log survives as an artefact. A failing run on a public
+          # repo cannot be read back through the API without a token, so the
+          # reason has to be attached to the run itself.
+          python tools/tests/run_all.py 2>&1 | tee tests.log
+
+      - name: upload the test log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: tests-log
+          path: |
+            tests.log
+            tools/tests/*.log
+          if-no-files-found: ignore
+          retention-days: 14
 
       - name: shell tooling (bash + unzip, no network)
+        if: always()
         run: |
           set -euo pipefail
           bash -n tools/fetch_ipa.sh
@@ -107,7 +124,11 @@ jobs:
   # ------------------------------------------------------------------ dylib
   build-dylib:
     name: build FFMenu.dylib
-    needs: offline-tests
+    # Deliberately NOT gated on offline-tests. A lint failure in the Python
+    # tooling must never hide the compiler output - the two answer different
+    # questions, and the compiler answer is the one that takes a macOS runner to
+    # get. Gating it here meant a single test failure skipped the build and left
+    # nothing to read.
     runs-on: macos-14
     steps:
       - uses: actions/checkout@v4

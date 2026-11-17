@@ -29,15 +29,29 @@ static NSMutableArray<NSString *> *gMissing;
 + (NSArray<NSString *> *)missingSymbols { return gMissing ?: @[]; }
 
 // ------------------------------------------------------------------ lookup
-// Map a file offset inside a loaded image to its in-memory address.
-static void *addrForFileOffset(const struct mach_header_64 *h, intptr_t slide,
-                               uint64_t fileoff) {
+// Map a file range of a loaded image to its in-memory address.
+//
+// A symbol table is untrusted input. n_strx is a 32-bit offset whose only
+// meaning is "within strsize", and an image can hand back a stroff/symoff whose
+// segment is only partly mapped - the dyld shared cache maps __LINKEDIT lazily,
+// and an image caught mid-initialisation has a header but no settled mappings.
+// Reading a byte past the end is a SIGBUS that kills the app before it draws a
+// frame, so every access below goes through a range check that requires the
+// WHOLE run to sit inside one segment.
+static void *rangeInImage(const struct mach_header_64 *h, intptr_t slide,
+                          uint64_t fileoff, uint64_t size) {
+    if (size == 0) return NULL;
     const uint8_t *p = (const uint8_t *)(h + 1);
+    const uint8_t *limit = p + h->sizeofcmds;
     for (uint32_t c = 0; c < h->ncmds; c++) {
+        if (p + sizeof(struct load_command) > limit) return NULL;
         const struct load_command *lc = (const struct load_command *)p;
-        if (lc->cmd == LC_SEGMENT_64) {
+        if (lc->cmdsize < sizeof(struct load_command)) return NULL;
+        if (lc->cmd == LC_SEGMENT_64 &&
+            lc->cmdsize >= sizeof(struct segment_command_64)) {
             const struct segment_command_64 *sg = (const struct segment_command_64 *)lc;
-            if (fileoff >= sg->fileoff && fileoff < sg->fileoff + sg->filesize) {
+            if (fileoff >= sg->fileoff && fileoff - sg->fileoff <= sg->filesize &&
+                size <= sg->filesize - (fileoff - sg->fileoff)) {
                 return (void *)((intptr_t)sg->vmaddr + slide +
                                 (intptr_t)(fileoff - sg->fileoff));
             }
@@ -53,26 +67,43 @@ static void *symFromMachO(const char *name) {
         const struct mach_header *mh = _dyld_get_image_header(i);
         if (!mh || mh->magic != MH_MAGIC_64) continue;
         const struct mach_header_64 *h = (const struct mach_header_64 *)mh;
+        if (h->ncmds == 0 || h->sizeofcmds < sizeof(struct mach_header_64)) continue;
         intptr_t slide = _dyld_get_image_vmaddr_slide(i);
 
         const struct symtab_command *st = NULL;
         const uint8_t *p = (const uint8_t *)(h + 1);
+        const uint8_t *limit = p + h->sizeofcmds;
         for (uint32_t c = 0; c < h->ncmds; c++) {
+            if (p + sizeof(struct load_command) > limit) break;
             const struct load_command *lc = (const struct load_command *)p;
-            if (lc->cmd == LC_SYMTAB) { st = (const struct symtab_command *)lc; break; }
+            if (lc->cmdsize < sizeof(struct load_command)) break;
+            if (lc->cmd == LC_SYMTAB &&
+                lc->cmdsize >= sizeof(struct symtab_command)) {
+                st = (const struct symtab_command *)lc;
+                break;
+            }
             p += lc->cmdsize;
         }
-        if (!st) continue;
+        if (!st || st->nsyms == 0 || st->strsize == 0) continue;
 
+        uint64_t symbytes = (uint64_t)st->nsyms * sizeof(struct nlist_64);
+        if (symbytes > (1ull << 28)) continue;        // 256 MB of symbols is a lie
         const struct nlist_64 *syms =
-            (const struct nlist_64 *)addrForFileOffset(h, slide, st->symoff);
-        const char *strtab = (const char *)addrForFileOffset(h, slide, st->stroff);
+            (const struct nlist_64 *)rangeInImage(h, slide, st->symoff, symbytes);
+        const char *strtab =
+            (const char *)rangeInImage(h, slide, st->stroff, st->strsize);
         if (!syms || !strtab) continue;
 
         for (uint32_t s = 0; s < st->nsyms; s++) {
-            if (syms[s].n_un.n_strx == 0) continue;
+            // n_strx beyond the string table is the exact read that killed the
+            // app: the old code checked only != 0, so a stale entry walked off
+            // __LINKEDIT into unmapped memory. Skip before touching the name.
+            uint32_t strx = syms[s].n_un.n_strx;
+            if (strx == 0 || strx >= st->strsize) continue;
             if (syms[s].n_type & N_STAB) continue;
-            const char *sn = strtab + syms[s].n_un.n_strx;
+            // the name must be terminated inside the table, not after it
+            if (!memchr(strtab + strx, 0, st->strsize - strx)) continue;
+            const char *sn = strtab + strx;
             if (sn[0] == '_') sn++;
             if (strcmp(sn, name) != 0) continue;
             uint8_t t = syms[s].n_type & N_TYPE;
@@ -99,7 +130,20 @@ static void *findSym(const char *name) {
         }                                                                \
     } while (0)
 
-+ (BOOL)load {
+// NOT named `load`, on purpose.
+//
+// In Objective-C any class method whose selector is `load` - whatever its
+// signature or return type - is invoked by the runtime from load_images(), i.e.
+// during dyld image initialisation, before the app's own initialisers run. This
+// method walks _dyld_image_count() and parses other images' symbol tables, which
+// is exactly what must not happen there: the image list is still being built and
+// a half-initialised image reports mappings that are not settled yet. That is
+// what crashed on launch - the symbol walk faulted on a byte read inside
+// load_images, before the splash screen, with the game never reaching main().
+//
+// It is called explicitly from FFBind() instead, on the main queue, after
+// UIApplication exists and after the game has had time to bring Unity up.
++ (BOOL)loadAPI {
     if (gLoaded) return YES;
     memset(&gApi, 0, sizeof(gApi));
     gMissing = [NSMutableArray array];

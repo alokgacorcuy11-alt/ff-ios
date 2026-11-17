@@ -52,5 +52,6 @@ extern NSString *kFFGainY;           // cal.gain_y
 
 // persistence
 - (void)save;
-- (void)load;
+- (void)loadPersisted;                // NOT `load`: that name reads like the
+                                     // +load hook dyld calls at image init
 @end

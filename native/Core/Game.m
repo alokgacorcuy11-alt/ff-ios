@@ -593,7 +593,7 @@ static void *resolveGroup(NSDictionary *d, NSString *single, NSString *plural,
     offName = offHp = offMaxHp = offTeam = offLocal = offCamTr = offBot = offPos = 0;
     offListField = offItems = offSize = 0;
 
-    if (![IL2CPP load]) { err(@"il2cpp runtime not resolved"); return NO; }
+    if (![IL2CPP loadAPI]) { err(@"il2cpp runtime not resolved"); return NO; }
     gMap = s;
     if (![s isKindOfClass:NSDictionary.class] || s.count == 0) { err(@"empty schema"); return NO; }
 

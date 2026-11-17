@@ -112,7 +112,10 @@ enum {
 
 @interface IL2CPP : NSObject
 
-+ (BOOL)load;                        // resolve every symbol; YES if usable
++ (BOOL)loadAPI;                      // resolve every symbol; YES if usable
+                                      // (NOT named `load`: the runtime would call
+                                      // a class method called `load` from
+                                      // load_images, during dyld init)
 + (Il2CppApi *)api;
 + (NSArray<NSString *> *)missingSymbols;
 + (NSString *)report;                // one line for the diagnostics panel

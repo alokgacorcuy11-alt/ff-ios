@@ -1322,6 +1322,59 @@ def audit_entry_point():
           re.search(r"tries < \d+", code) is not None)
 
 
+def audit_load_selector():
+    """A class method named `load` is not a method - it is a launch hook.
+
+    The Objective-C runtime calls +load from load_images(), during dyld's own
+    image initialisation, whatever the declared signature is. A resolver named
+    `load` therefore ran the whole IL2CPP symbol walk at the worst possible
+    moment - image list half built, mappings not settled - and the app died
+    before its first frame. Only the key decode in FFState.m may use that name.
+    """
+    pat = re.compile(r"^\s*([+-])\s*\(\s*([^)]*?)\s*\)\s*load\s*(?:\{|;)", re.M)
+    hits = []
+    for p in sorted(list(NATIVE.glob("*.x")) + list(NATIVE.rglob("*.m"))):
+        raw = p.read_text(encoding="utf-8", errors="replace")
+        for m in pat.finditer(strip_comments(raw)):
+            hits.append((p, m.group(1), m.group(2)))
+
+    def allowed(f, sign, typ):
+        return f.name == "FFState.m" and sign == "+" and typ.strip() == "void"
+
+    bad = [f"{p.name}:{sign}({typ})load" for p, sign, typ in hits
+           if not allowed(p, sign, typ)]
+    check("no class method is accidentally named `load`", not bad,
+          "-> " + ", ".join(bad) if bad else "")
+    check("the key decode in FFState.m still has its +load",
+          any(allowed(p, s, t) for p, s, t in hits))
+    check("the resolver is called explicitly instead",
+          "[IL2CPP loadAPI]" in (NATIVE / "Tweak.x").read_text(encoding="utf-8"))
+
+
+def audit_symtab_bounds():
+    """Walking a symbol table is reading untrusted input.
+
+    n_strx is a 32-bit offset whose only meaning is "inside strsize". The build
+    that shipped checked `!= 0` and then computed strtab + n_strx, so one stale
+    entry walked off __LINKEDIT into unmapped memory: SIGBUS inside load_images,
+    before the splash screen, with nothing of ours on screen to explain it.
+    """
+    text = (NATIVE / "Core" / "IL2CPP.m").read_text(encoding="utf-8")
+    code = strip_comments(text)
+    check("the symbol name offset is checked against the table size",
+          re.search(r"strx\s*>=\s*st->strsize", code) is not None)
+    check("the name must be terminated inside the table",
+          "memchr(strtab + strx, 0, st->strsize - strx)" in code)
+    check("the whole symbol array is range-checked, not just its start",
+          "rangeInImage(" in code and "symbytes" in code)
+    check("the unbounded one-address mapper is gone",
+          "addrForFileOffset" not in code)
+    check("a nonsense nsyms is rejected before it is multiplied",
+          re.search(r"symbytes\s*>\s*\(", code) is not None)
+    check("the load-command walk cannot run past sizeofcmds",
+          "sizeofcmds" in code and "limit" in code)
+
+
 def main() -> int:
     print("=" * 66)
     print(" source audit - native dylib + menu assets")
@@ -1365,6 +1418,10 @@ def main() -> int:
     audit_macro_params()
     print()
     audit_entry_point()
+    print()
+    audit_load_selector()
+    print()
+    audit_symtab_bounds()
     print()
     if FAIL:
         print(f"{FAIL} check(s) FAILED")

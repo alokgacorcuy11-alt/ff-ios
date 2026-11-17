@@ -53,7 +53,7 @@ static void FFBind(void) {
 
 static void FFBoot(void) {
     USConfig *st = USConfig.shared;
-    if (![IL2CPP load]) {
+    if (![IL2CPP loadAPI]) {
         if (++gTries < 120) {                 // 120 x 0.5 s = 60 s
             dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.5 * NSEC_PER_SEC)),
                            dispatch_get_main_queue(), ^{ FFBoot(); });

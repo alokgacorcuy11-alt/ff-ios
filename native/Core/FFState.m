@@ -112,7 +112,7 @@ static NSString *kSchemaKey(void) { return FFMapKey(); }
     if ((self = [super init])) {
         _values = [NSMutableDictionary dictionary];
         [self defaults];
-        [self load];
+        [self loadPersisted];
         [self reloadSchema];
     }
     return self;
@@ -292,7 +292,10 @@ static NSString *DocumentsDir(void) {
     [[NSUserDefaults standardUserDefaults] synchronize];
 }
 
-- (void)load {
+// Not named `load`, for the same reason the resolver is not: a method called
+// `load` reads like the runtime hook it is not, and the next person to touch
+// this file should not have to remember which kind is invoked by dyld.
+- (void)loadPersisted {
     NSDictionary *d = [[NSUserDefaults standardUserDefaults] dictionaryForKey:kPrefsKey()];
     if (!d) return;
     @synchronized (self) {

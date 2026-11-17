@@ -198,7 +198,7 @@ typedef struct {
         log(s);
     };
 
-    if (![IL2CPP load]) { say(@"il2cpp not ready"); return nil; }
+    if (![IL2CPP loadAPI]) { say(@"il2cpp not ready"); return nil; }
 
     Il2CppApi *api = [IL2CPP api];
     NSMutableDictionary *map = [NSMutableDictionary dictionary];

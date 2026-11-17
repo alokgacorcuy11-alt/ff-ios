@@ -94,13 +94,48 @@ python tools/ipa_probe.py out/com.dts.freefireth-payload.ipa
 You should see `cryptid 0`, no `_CodeSignature`, and:
 
 ```
- -- vendor frameworks shipped in the bundle: 2
+ -- vendor frameworks shipped in the bundle: 1
       @executable_path/Frameworks/UnityServices.framework/UnityServices
 ```
 
 That last line is the camouflage working: the load command points at a framework
 path, not a loose `libSomething.dylib`. A scanner looking for loose dylibs sees
 nothing unusual.
+
+### 4b. Packaging without uploading a 510 MB IPA
+
+The workflow can package, but that means handing it the payload — and the IPA is
+half a gigabyte, which is over GitHub's 100 MB file limit and a long upload
+either way. The other direction works just as well: let CI build the 285 KB
+dylib, bring *that* back, and package on the machine that already has the IPA.
+
+The build job publishes the compiled dylib to a `build` branch precisely so this
+is possible — Actions **artifacts cannot be downloaded without signing in**, even
+on a public repository, while a branch file can:
+
+```bash
+# 1. fetch the compiled dylib and its manifest (no auth)
+curl -fL -o FFMenu.dylib \
+  https://raw.githubusercontent.com/<owner>/<repo>/build/dist/FFMenu.dylib
+curl -fL https://raw.githubusercontent.com/<owner>/<repo>/build/dist/BUILD.txt
+# 2. check it is the build you think it is - BUILD.txt carries the sha256,
+#    the source commit and the size
+sha256sum FFMenu.dylib
+# expected: thin arm64 Mach-O, cputype 0x0100000C, filetype 6 (MH_DYLIB)
+# 3. package locally
+python tools/package_ipa.py decrypted.ipa FFMenu.dylib
+# -> out/com.dts.freefireth-payload.ipa
+```
+
+Two outputs are worth keeping, because the installer decides which one you need:
+
+| output | for | why |
+|---|---|---|
+| `com.dts.freefireth-payload.ipa` | TrollStore, a jailbreak, or a paid certificate | keeps the real bundle id |
+| `com.<you>.freefire-payload.ipa` (`--bundle-id`) | a **free** Apple ID via Sideloadly / AltStore / ESign | `com.dts.freefireth` is Garena's registered App ID and collides with a personal team |
+
+`out/PACKAGE.txt` records the dylib sha256, the source commit and a sha256 per
+IPA, so a build can be identified later without guessing.
 
 ## 5. Stealth: what is real, what is marketing
 

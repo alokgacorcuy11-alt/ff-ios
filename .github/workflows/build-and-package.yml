@@ -234,6 +234,17 @@ jobs:
           xcrun vtool -show-build "$D" | grep -q "minos 12" \
             || echo "::warning::minimum OS is not 12.0 - check TARGET in the Makefile"
 
+      - name: no method named load (that selector is a launch hook, not a method)
+        run: |
+          set -euo pipefail
+          D="${{ steps.find.outputs.dylib }}"
+          # Any class method whose selector is `load` is invoked by the runtime
+          # from load_images(), during dyld image initialisation - whatever its
+          # signature says. One of those ran the entire IL2CPP symbol walk at
+          # launch and killed the app before its first frame, so the binary is
+          # checked here, not just the source.
+          python3 tools/dylib_info.py "$D"
+
       - name: does it advertise itself?
         run: |
           set -euo pipefail

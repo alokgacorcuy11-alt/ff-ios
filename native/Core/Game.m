@@ -380,13 +380,24 @@ static BOOL transformUsable(Il2CppObject *tr) {
 
 static NSString *gCamTrSource;
 static BOOL gCamTrSwept;
+static Il2CppObject *gEngineTr;          // Camera.main -> Transform, cached
+static NSTimeInterval gEngineTrStamp;
 
 // Camera.main -> Component::get_transform. Identity-checked: the returned
 // object's class has to BE UnityEngine.Transform, not merely answer a couple of
 // calls, because a bogus pointer dereferenced for a field read is a crash and
 // this runs on the display link.
+//
+// Cached for 0.5 s like mainCamera(): this is called once per player per frame
+// from the matrix world-to-screen, and re-validating it 600 times a second buys
+// nothing - a camera object that changes mid-frame cannot be projected anyway.
 static Il2CppObject *cameraFromEngine(void) {
     if (!icGetTransform) return NULL;
+    NSTimeInterval now = [NSDate timeIntervalSinceReferenceDate];
+    if (gEngineTr && now - gEngineTrStamp < 0.5) return gEngineTr;
+    gEngineTrStamp = now;
+    gEngineTr = NULL;
+
     Il2CppObject *cam = mainCamera();
     if (!cam) return NULL;
 
@@ -413,6 +424,7 @@ static Il2CppObject *cameraFromEngine(void) {
 
     if (!transformUsable(tr)) return NULL;
     gCamTrSource = @"Camera.main.transform";
+    gEngineTr = tr;
     return tr;
 }
 
@@ -625,6 +637,8 @@ static void *resolveGroup(NSDictionary *d, NSString *single, NSString *plural,
     gW2SMode = @"none";
     gW2SFails = 0;
     gMainCamera = NULL;
+    gEngineTr = NULL;
+    gEngineTrStamp = 0;
     gLocalObj = NULL;
     gCalibrated = NO;
     gProbeStamp = 0;

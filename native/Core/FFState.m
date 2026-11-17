@@ -214,8 +214,9 @@ BOOL FFSchemaUsable(NSDictionary *s) {
 }
 
 - (BOOL)schemaReady {
-    NSDictionary *s = [self schema];
-    return s[@"player"] != nil && s[@"camera"] != nil;
+    // "There is a dict with a player key in it" is not ready - a template has
+    // both. Same test the boot path binds with, so the two cannot disagree.
+    return FFSchemaUsable([self schema]);
 }
 
 // Defined before its first use: reloadSchema (below) calls it, and ObjC

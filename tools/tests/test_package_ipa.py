@@ -194,11 +194,46 @@ check("probe verdict says MODIFIED", "MODIFIED" in pr2["verdict"])
 
 print("\n--- bundle id rewrite for free-cert sideload ---")
 r = run_pkg(dec, dylib, "--bundle-id", "com.me.fftest")
-check("packaging succeeded", r.returncode == 0)
+check("packaging succeeded", r.returncode == 0, (r.stdout + r.stderr)[-300:] if r.returncode else "")
 out3 = TMP / "out" / "com.me.fftest-payload.ipa"
 check("new file name uses the new id", out3.exists(), f"-> {out3.name}")
 pr3 = probe(out3)
 check("bundle id rewritten", pr3["bundle_id"] == "com.me.fftest")
+
+# The framework must not inherit the app's identifier. When it did, installd
+# refused the install with DuplicateIdentifier and blamed the parent bundle:
+#   "The parent bundle has the same identifier (com.x.y.TEAMID) as sub-bundle
+#    .../UnityServices.framework"
+import zipfile as _zip
+import plistlib as _plist
+
+
+def identifiers(ipa):
+    ids = {}
+    with _zip.ZipFile(ipa) as z:
+        for name in z.namelist():
+            if name.endswith("Info.plist") and (
+                    name.count("/") == 2 or ".framework/Info.plist" in name):
+                try:
+                    p = _plist.loads(z.read(name))
+                except Exception:                                  # noqa: BLE001
+                    continue
+                if isinstance(p, dict) and p.get("CFBundleIdentifier"):
+                    ids[name] = p["CFBundleIdentifier"]
+    return ids
+
+
+ids = identifiers(out3)
+app_id = ids.get("Payload/FreeFire.app/Info.plist")
+fw_id = ids.get("Payload/FreeFire.app/Frameworks/UnityServices.framework/Info.plist")
+check("the app keeps the requested id", app_id == "com.me.fftest", f"-> {app_id}")
+check("the framework has its own identifier, not the app's",
+      fw_id is not None and fw_id != app_id, f"-> app={app_id} framework={fw_id}")
+check("no two bundles in the payload share an identifier",
+      len(set(ids.values())) == len(ids),
+      f"-> {sorted(ids.values())}")
+check("the framework identifier still reads as a vendor framework",
+      (fw_id or "").startswith("com.vendor."), f"-> {fw_id}")
 
 print("\n--- verify the header was not corrupted ---")
 with zipfile.ZipFile(out3) as z:

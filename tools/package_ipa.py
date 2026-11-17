@@ -230,7 +230,19 @@ def build(ipa: Path, dylib: Path, outdir: Path, framework: str | None,
             fi = dict(FRAMEWORK_INFO)
             fi["CFBundleExecutable"] = framework
             fi["CFBundleName"] = framework
-            fi["CFBundleIdentifier"] = bundle_id or f"com.vendor.{framework.lower()}"
+            # The framework gets its OWN identifier - never the app's, and never
+            # derived from it. An earlier version used `bundle_id or ...`, so
+            # `--bundle-id com.x.y` stamped the app's identifier onto the
+            # framework too and installd refused the install:
+            #
+            #   DuplicateIdentifier: The parent bundle has the same identifier
+            #   (com.x.y.TEAMID) as sub-bundle .../UnityServices.framework
+            #
+            # A vendored third-party framework carries its own reverse-DNS id in
+            # real apps, so this is also the more natural shape to see.
+            fi["CFBundleIdentifier"] = f"com.vendor.{framework.lower()}"
+            if fi["CFBundleIdentifier"] == (bundle_id or old_bid):
+                fi["CFBundleIdentifier"] = f"com.vendor.{framework.lower()}.framework"
             (fdir / "Info.plist").write_bytes(plistlib.dumps(fi))
             target = f"@executable_path/Frameworks/{framework}.framework/{framework}"
             kind = f"framework ({framework}.framework)"
@@ -264,6 +276,20 @@ def build(ipa: Path, dylib: Path, outdir: Path, framework: str | None,
         if bundle_id:
             info["CFBundleIdentifier"] = bundle_id
             info_path.write_bytes(plistlib.dumps(info))
+
+        # 4b. a bundle and its sub-bundles must not share an identifier. installd
+        # refuses the whole install with DuplicateIdentifier, and the message it
+        # gives names the parent, which sends you looking in the wrong plist.
+        if framework:
+            fw_plist = fw_dir / f"{framework}.framework" / "Info.plist"
+            if fw_plist.exists():
+                fw_id = plistlib.loads(fw_plist.read_bytes()).get("CFBundleIdentifier")
+                app_id = info.get("CFBundleIdentifier")
+                if fw_id == app_id:
+                    raise PkgError(
+                        f"the framework and the app would share the identifier "
+                        f"{app_id!r} - installd rejects that with "
+                        f"DuplicateIdentifier. One of them has to differ.")
 
         # 5. strip anything a signer needs to own
         if sign_ready:

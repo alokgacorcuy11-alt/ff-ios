@@ -23,22 +23,36 @@ static BOOL gBound = NO;
 
 // ---------------------------------------------------------------- boot
 static void FFBind(void) {
-    if (gBound) return;
+    // "Bound" is not a latch - it is a claim that has to stay true. A map can
+    // bind and still read nothing (wrong container, empty list), and the old
+    // `if (gBound) return;` meant the dylib never tried again.
+    if (gBound && [USModel ready]) return;
 
     // A proxy map takes precedence if one was shipped or served; it is the
     // operator's override. Otherwise resolve everything from the live runtime,
     // which is the normal path and needs no files at all.
     NSDictionary *map = USConfig.shared.schema;
-    BOOL fromProxy = [map[@"player"][@"container_class"] length] > 0;
+    BOOL fromProxy = FFSchemaUsable(map);
 
     // Optional digitizer field override. Without it the two tail indices are
     // discovered at runtime; with it, the operator's measured values win.
     if ([map[@"input"] isKindOfClass:NSDictionary.class]) [USInput configure:map[@"input"]];
 
+    gBound = NO;
     if (fromProxy) {
-        FFLOG(@"binding from the proxy schema");
+        FFLOG(@"binding from the %@ schema", [USConfig.shared schemaSource]);
         gBound = [USModel bindWithSchema:map];
-    } else {
+        if (!gBound) {
+            // The map did not describe this build. Keeping it would repeat the
+            // same failure every three seconds forever, so drop it and let the
+            // live resolver - the path that needs no files - take over.
+            FFLOG(@"schema failed to bind, falling back to the live runtime:\n%@",
+                  [USModel diagnostics]);
+            [USConfig.shared rejectSchema:@"bind failed"];
+            [USPanel.shared refresh];
+        }
+    }
+    if (!gBound) {
         FFLOG(@"resolving from the live runtime");
         gBound = [USModel autoBind];
     }
@@ -49,6 +63,23 @@ static void FFBind(void) {
         FFLOG(@"bind failed:\n%@", [USModel diagnostics]);
     }
     [USPanel.shared refresh];
+}
+
+// Re-resolve until it works, for as long as the process lives.
+//
+// il2cpp can only walk the player class once an actual match exists, and the
+// entity classes are loaded lazily - so a bind at launch is *expected* to fail
+// in the lobby. The previous version gave up after 60 s, which is exactly when
+// the player finishes loading into a match.
+static void FFArmBindRetry(int n) {
+    // 3 s while a match is probably starting, then back off to 10 s. autoBind
+    // walks every class in every image, so it is not free.
+    NSTimeInterval gap = (n < 20) ? 3.0 : 10.0;
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(gap * NSEC_PER_SEC)),
+                   dispatch_get_main_queue(), ^{
+        if (![USModel ready]) FFBind();
+        FFArmBindRetry(n + 1);
+    });
 }
 
 static void FFBoot(void) {
@@ -76,15 +107,6 @@ static void FFBoot(void) {
 
 // Re-resolve when the match changes: il2cpp can only walk the player class once
 // an actual match exists, and entity classes are loaded lazily.
-static void FFArmBindRetry(void) {
-    static int n = 0;
-    if (gBound || n++ > 20) return;
-    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(3.0 * NSEC_PER_SEC)),
-                   dispatch_get_main_queue(), ^{
-        FFBind();
-        FFArmBindRetry();
-    });
-}
 
 // ---------------------------------------------------------------- entry
 //
@@ -140,7 +162,7 @@ static void USBootWhenReady(int tries) {
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.0 * NSEC_PER_SEC)),
                    dispatch_get_main_queue(), ^{
         FFBoot();
-        FFArmBindRetry();
+        FFArmBindRetry(0);
     });
     // touch injection is independent of il2cpp; get the symbols early so the
     // diagnostics panel can report the truth even before a match exists

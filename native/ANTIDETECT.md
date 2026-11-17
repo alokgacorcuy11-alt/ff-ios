@@ -27,6 +27,54 @@ So the design principle here is: **read a lot, write almost nothing, and never
 produce an input pattern a human cannot produce.** Everything in §2 follows
 from that.
 
+### 0.1 Why a permanent ban arrives while nothing works
+
+This is not a contradiction, and it is the most useful thing in this file: the
+ban is a **client-integrity** verdict, and it does not wait for a feature to
+fire. The checks that produce it run at launch, before the lobby, and they
+inspect *the app that is running*, not what it does.
+
+The evidence from this install (crash log + build output):
+
+| signal | App Store build | this build | who can see it |
+|---|---|---|---|
+| `embedded.mobileprovision` | **absent** | present (free/paid cert sideload) | any app file check - one `fileExistsAtPath` |
+| `get-task-allow` entitlement | `false` | `true` with a free cert | `SecTaskCopyValueForEntitlement` on own task |
+| signing Team ID | Apple Distribution | `QM3GS292GJ` (development) | `SecCodeCopySigningInformation` |
+| `CFBundleIdentifier` | `com.dts.freefireth` | `com.alokgacorcuy11.freefire.QM3GS292GJ` | `NSBundle.mainBundle` |
+| `LC_LOAD_DYLIB` count | 0 injected | 1 injected (`UnityServices.framework`) | Mach-O header walk |
+| `Frameworks/` contents | vendor set | vendor set **+ UnityServices.framework** | directory listing |
+| App Attest | passes | fails or unavailable for a foreign bundle id | server-side |
+
+Every row above is readable by the app itself, from inside the app, with public
+APIs - no jailbreak, no root, no private entitlement. A single check on any one
+of them is enough for a server-side flag, and flags of this class are what
+produce **permanent, device-scoped** bans rather than match-scoped ones. That is
+why the account died with the cheat features never having worked: the verdict
+was reached before the first match.
+
+What this means, concretely:
+
+1. **A feature that does nothing cannot save the account.** Integrity is decided
+   at launch. There is no "safer" feature set that avoids it.
+2. **The signal is the install, not the dylib.** Every sideload path on iOS 26.6
+   writes `embedded.mobileprovision` and a foreign Team ID; the kernel verifies
+   the signature before any of our code runs, so nothing inside the dylib can
+   forge or hide it.
+3. **The ban is almost certainly device-scoped.** Keychain items survive app
+   deletion, IDFV survives reinstall, and the device model + a server-side
+   fingerprint survive both. A new account on the same device is at high risk of
+   a fast re-ban, and no client-side change alters that.
+4. **TrollStore would remove three of the seven rows** (no profile, original
+   bundle id, ad-hoc signature) - but it needs a CoreTrust-class bug, and none is
+   public for iOS 26.6 as of this build. `[unverified - check the supported
+   versions before planning around it]`
+
+What is *not* claimed: which row actually tripped it. That would need the ban
+message text and a log of the launch-time checks, neither of which exists for a
+banned account. The rows are ranked by cost to check and by how unusual each
+value is - `embedded.mobileprovision` is the cheapest and the loudest.
+
 ---
 
 ## 1. Client-side layers, one by one

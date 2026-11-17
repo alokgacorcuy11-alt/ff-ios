@@ -476,6 +476,13 @@ typedef struct {
         @"icall_fov_candidates": @[
             @"UnityEngine.Camera::get_fieldOfView",
         ],
+        // Camera.main -> its Transform, via the Component base class. This is
+        // the camera pose without touching a player field: the player-field
+        // candidates are only shape-checked, and every bone passes that.
+        @"icall_component_transform": @"UnityEngine.Component::get_transform",
+        @"icall_component_transform_candidates": @[
+            @"UnityEngine.Component::get_transform",
+        ],
     };
     map[@"transform"] = @{
         @"icall_position_injected": @"UnityEngine.Transform::get_position_Injected",

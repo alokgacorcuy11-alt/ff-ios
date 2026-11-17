@@ -45,6 +45,7 @@ static size_t offListField, offItems, offSize;
 
 static void *icW2SInj, *icW2SRet, *icGetMain, *icFov;
 static void *icTrPosInj, *icTrRotInj, *icTrEulerInj, *icTrMatInj;
+static void *icGetTransform;          // UnityEngine.Component::get_transform
 static Il2CppObject *gMainCamera;
 static NSTimeInterval gCameraStamp;
 static Il2CppObject *gLocalObj;
@@ -333,10 +334,21 @@ static float cameraFov(void) {
 // Defined below; localCameraTransform needs it so the w2s matrix fallback can
 // recover on its own if the schema's first guess was the wrong field.
 static BOOL resolveCameraTransform(void);
+static BOOL transformUsable(Il2CppObject *tr);
+static Il2CppObject *cameraFromEngine(void);
 
-// The local player owns the main camera transform, so the matrix fallback can
-// get the camera pose without ever touching UnityEngine.Camera's managed side.
+// The camera pose, from the engine itself when possible.
+//
+// Camera.main is a Camera, and a Transform is a Component - so the engine's own
+// Component::get_transform answers with the exact transform the renderer uses.
+// That is the primary path now, because the player-field candidates can only be
+// checked for "does this answer position and rotation like a Transform", and
+// every bone on the player passes that test. A bone's pose projects the world
+// through the wrong frame: boxes land nowhere and the aim points somewhere else,
+// with no crash to point at. Player fields stay as the fallback.
 static Il2CppObject *localCameraTransform(void) {
+    Il2CppObject *engine = cameraFromEngine();
+    if (engine) return engine;
     if (!gLocalObj) return NULL;
     if (!fCamTr) resolveCameraTransform();
     if (!fCamTr) return NULL;
@@ -368,6 +380,41 @@ static BOOL transformUsable(Il2CppObject *tr) {
 
 static NSString *gCamTrSource;
 static BOOL gCamTrSwept;
+
+// Camera.main -> Component::get_transform. Identity-checked: the returned
+// object's class has to BE UnityEngine.Transform, not merely answer a couple of
+// calls, because a bogus pointer dereferenced for a field read is a crash and
+// this runs on the display link.
+static Il2CppObject *cameraFromEngine(void) {
+    if (!icGetTransform) return NULL;
+    Il2CppObject *cam = mainCamera();
+    if (!cam) return NULL;
+
+    static Il2CppClass *transformCls;
+    static BOOL looked;
+    if (!looked) {
+        looked = YES;
+        transformCls = [IL2CPP clsAnywhere:@"Transform" ns:@"UnityEngine"];
+    }
+
+    Il2CppApi *api = [IL2CPP api];
+    void *p = ((void *(*)(void *))icGetTransform)(cam);
+    if (!p || ((uintptr_t)p & 7)) return NULL;
+    Il2CppObject *tr = (Il2CppObject *)p;
+
+    if (transformCls && api->object_get_class) {
+        if (api->object_get_class(tr) != transformCls) return NULL;
+    } else if (api->object_get_class) {
+        // Transform is stripped from this build's metadata: fall back to a name
+        // check, which is weaker but still rejects a foreign object.
+        const char *n = api->class_get_name(api->object_get_class(tr));
+        if (!n || strcmp(n, "Transform") != 0) return NULL;
+    }
+
+    if (!transformUsable(tr)) return NULL;
+    gCamTrSource = @"Camera.main.transform";
+    return tr;
+}
 
 static BOOL resolveCameraTransform(void) {
     if (!gLocalObj || !gPlayerCls) return NO;
@@ -596,6 +643,11 @@ static void *resolveGroup(NSDictionary *d, NSString *single, NSString *plural,
     if (![IL2CPP loadAPI]) { err(@"il2cpp runtime not resolved"); return NO; }
     gMap = s;
     if (![s isKindOfClass:NSDictionary.class] || s.count == 0) { err(@"empty schema"); return NO; }
+    // Bind only against a map that has the keys and no template values. This
+    // is the check that was missing: `container_class: "CHANGE_ME"` is a
+    // non-empty string, so the old guard passed it, every field lookup then
+    // returned NULL, and the symptom was "the menu works but nothing happens".
+    if (!FFSchemaUsable(s)) { err(@"schema is a template / incomplete - not binding to it"); return NO; }
 
     // A gain measured in an earlier session still applies; without this the
     // aim would need re-calibrating on every launch.
@@ -747,6 +799,8 @@ static void *resolveGroup(NSDictionary *d, NSString *single, NSString *plural,
     icW2SRet   = resolveGroup(cam, @"icall_w2s_value", @"icall_w2s_value_candidates", @"w2s.val");
     icGetMain  = resolveGroup(cam, @"icall_get_main", @"icall_get_main_candidates", @"camera");
     icFov      = resolveGroup(cam, @"icall_fov", @"icall_fov_candidates", @"fov");
+    icGetTransform = resolveGroup(cam, @"icall_component_transform",
+                                  @"icall_component_transform_candidates", @"cam.tr");
     icTrPosInj = resolveGroup(tr, @"icall_position_injected", @"icall_position_candidates", @"pos");
     icTrRotInj = resolveGroup(tr, @"icall_rotation_injected", @"icall_rotation_candidates", @"rot");
     icTrEulerInj = resolveGroup(tr, @"icall_euler_injected", @"icall_euler_candidates", @"euler");
@@ -1257,6 +1311,7 @@ static void *resolveGroup(NSDictionary *d, NSString *single, NSString *plural,
     NSMutableString *s = [NSMutableString string];
     [s appendFormat:@"%@\n", [IL2CPP report]];
     [s appendFormat:@"master: %@\n", gReady ? @"READY" : @"NOT BOUND"];
+    [s appendFormat:@"schema source: %@\n", [USConfig.shared schemaSource]];
     [s appendFormat:@"w2s: %@\n", [self w2sReport]];
     [s appendFormat:@"camera transform: %@ (%@)\n",
         gCamTrSource ?: @"(none)",

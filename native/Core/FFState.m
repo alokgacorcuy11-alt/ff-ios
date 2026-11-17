@@ -62,9 +62,50 @@ NSString *kFFGainY;
 static NSString *kPrefsKey(void)  { return FFPrefsKey(); }
 static NSString *kSchemaKey(void) { return FFMapKey(); }
 
+// ---------------------------------------------------------------- validation
+//
+// A schema file is an OVERRIDE, so it has to earn its place. The failure mode
+// this exists to kill: `cp native/ff_native.example.json state/ff_native.json`
+// (which README suggests) ships a template whose every value is "CHANGE_ME".
+// The old boot path only asked `container_class.length > 0`, that value is
+// non-empty, so the dylib bound against a template map, every field lookup
+// returned NULL, and ESP/aim did nothing - silently, forever, because the proxy
+// also wrote that map into Documents. Bind now refuses templates.
+static const char *kTemplateValues[] = {
+    "CHANGE_ME", "??", "?", "TBD", "FILL_ME"
+};
+
+static BOOL FFIsTemplateValue(NSString *s) {
+    if (!s.length) return YES;
+    NSString *t = [s stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceCharacterSet];
+    if (!t.length) return YES;
+    for (size_t i = 0; i < sizeof(kTemplateValues) / sizeof(kTemplateValues[0]); i++) {
+        if ([t caseInsensitiveCompare:@(kTemplateValues[i])] == NSOrderedSame) return YES;
+    }
+    // catches "CHANGE_ME_2", "x_CHANGE_ME" and the like
+    return [t rangeOfString:@"CHANGE_ME" options:NSCaseInsensitiveSearch].location != NSNotFound;
+}
+
+BOOL FFSchemaUsable(NSDictionary *s) {
+    if (![s isKindOfClass:NSDictionary.class] || s.count == 0) return NO;
+    NSDictionary *p = s[@"player"];
+    if (![p isKindOfClass:NSDictionary.class]) return NO;
+    // The four without which USModel cannot read anything at all. These are
+    // exactly the keys whose absence shows up as "bound, but zero players".
+    NSArray<NSString *> *required = @[ @"container_class", @"container_static",
+                                       @"list_field", @"position_field" ];
+    for (NSString *k in required) {
+        id v = p[k];
+        if (![v isKindOfClass:NSString.class]) return NO;
+        if (FFIsTemplateValue(v)) return NO;
+    }
+    return YES;
+}
+
 @implementation USConfig {
     NSMutableDictionary<NSString *, id> *_values;
     NSDictionary *_schema;
+    NSString *_schemaSource;
     NSString *_proxyBase;
     NSTimer *_pollTimer;
     NSTimeInterval _lastFetch;
@@ -186,13 +227,62 @@ static NSString *DocumentsDir(void) {
 - (void)reloadSchema {
     // 1. bundled copy next to the dylib (always available, offline safe)
     NSDictionary *s = [self loadJSON:@"ff_native" dir:nil];
+    NSString *src = s ? @"bundle" : @"none";
+    if (s && !FFSchemaUsable(s)) {
+        FFLOG(@"bundled schema is a template - ignoring it");
+        s = nil;
+        src = @"none";
+    }
+
     // 2. proxy copy overrides it - lets you fix offsets after a game patch
-    //    without rebuilding or re-signing the IPA
-    NSDictionary *remote = [self loadJSON:@"ff_native" dir:DocumentsDir()];
-    if (remote) s = remote;
-    @synchronized (self) { _schema = s ?: @{}; }
-    FFLOG(@"schema %@ (%lu top keys)",
-          s ? @"loaded" : @"MISSING", (unsigned long)_schema.count);
+    //    without rebuilding or re-signing the IPA. Read WITHOUT the bundle
+    //    fallback, so `src` tells the truth about where the map came from.
+    NSString *remotePath = [DocumentsDir() stringByAppendingPathComponent:@"ff_native.json"];
+    NSDictionary *remote = [self loadJSONFile:remotePath];
+    if (remote) {
+        if (FFSchemaUsable(remote)) {
+            s = remote;
+            src = @"file";
+        } else {
+            // A template left here by a previous run survives reinstall (the
+            // Documents dir is only wiped when the app is deleted, and iTunes
+            // backups restore it). Delete it now or it poisons every launch.
+            [[NSFileManager defaultManager] removeItemAtPath:remotePath error:nil];
+            FFLOG(@"schema file rejected (template values) - deleted %@", remotePath);
+        }
+    }
+    @synchronized (self) {
+        _schema = s ?: @{};
+        _schemaSource = src;
+    }
+    FFLOG(@"schema %@ from %@ (%lu top keys)",
+          s ? @"loaded" : @"MISSING", src, (unsigned long)_schema.count);
+}
+
+// Documents-only read. `loadJSON:dir:` falls back to the bundle when the file
+// is absent, which made "did the operator supply a map?" unanswerable.
+- (NSDictionary *)loadJSONFile:(NSString *)path {
+    if (!path.length || ![[NSFileManager defaultManager] fileExistsAtPath:path]) return nil;
+    NSData *d = [NSData dataWithContentsOfFile:path];
+    if (!d) return nil;
+    id o = [NSJSONSerialization JSONObjectWithData:d options:0 error:nil];
+    return [o isKindOfClass:NSDictionary.class] ? o : nil;
+}
+
+- (NSString *)schemaSource {
+    @synchronized (self) { return _schemaSource ?: @"none"; }
+}
+
+// Bind failed against this map: it is not an answer for this build. Drop it and
+// fall back to the live resolver, which is the path that always works.
+- (void)rejectSchema:(NSString *)why {
+    NSString *p = [DocumentsDir() stringByAppendingPathComponent:@"ff_native.json"];
+    [[NSFileManager defaultManager] removeItemAtPath:p error:nil];
+    @synchronized (self) {
+        _schema = @{};
+        _schemaSource = @"none";
+    }
+    FFLOG(@"schema rejected (%@) - deleted %@", why, p);
 }
 
 - (NSDictionary *)loadJSON:(NSString *)name dir:(NSString *)dir {
@@ -248,7 +338,19 @@ static NSString *DocumentsDir(void) {
         NSString *schemaURL = [base stringByAppendingString:@"/api/native"];
         [self GET:schemaURL completion:^(NSDictionary *json) {
             if (![json isKindOfClass:NSDictionary.class] || json.count == 0) return;
-            @synchronized (self) { self->_schema = json; }
+            // The proxy answers this route with a diagnostic wrapper
+            // ({"_missing": ..., "example": {...}}) when it has no map, and with
+            // a template if the operator copied the example. Neither is an
+            // answer: adopting it pointed every field lookup at "CHANGE_ME",
+            // and writing it to Documents made the damage outlive the proxy.
+            if (!FFSchemaUsable(json)) {
+                FFLOG(@"proxy schema ignored (no usable map served)");
+                return;
+            }
+            @synchronized (self) {
+                self->_schema = json;
+                self->_schemaSource = @"proxy";
+            }
             NSString *p = [DocumentsDir() stringByAppendingPathComponent:@"ff_native.json"];
             [[NSJSONSerialization dataWithJSONObject:json options:0 error:nil] writeToFile:p atomically:YES];
             FFLOG(@"schema refreshed from proxy");

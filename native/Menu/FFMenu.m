@@ -63,9 +63,13 @@ typedef NS_ENUM(NSInteger, RowKind) { RowToggle, RowRange, RowSegment, RowInfo }
 @property (nonatomic) UIWindow *win;
 @property (nonatomic) UIButton *orb;
 @property (nonatomic) UIView *panel;
+@property (nonatomic) UIView *dot;                 // bind-health lamp on the orb
+@property (nonatomic) NSTimer *statusTimer;
 @property (nonatomic) NSMutableArray<USRow *> *rows;
 @property (nonatomic) NSMutableDictionary<NSString *, UILabel *> *valueLabels;
 @property (nonatomic) NSMutableArray<UISlider *> *sliders;
+- (void)updateStatus;
+- (void)updateStatusTimer:(NSTimer *)t;
 @end
 
 @implementation USPanel {
@@ -182,9 +186,47 @@ typedef NS_ENUM(NSInteger, RowKind) { RowToggle, RowRange, RowSegment, RowInfo }
         [self.orb addGestureRecognizer:pan];
 
         [w.rootViewController.view addSubview:self.orb];
+
+        // Bind lamp. Silent failure is why "the menu opens but nothing works"
+        // had to be diagnosed by hand: the overlay draws nothing when the
+        // model is not bound, and nothing said so. Red = not bound, amber =
+        // bound but no world-to-screen yet, green = live.
+        CGFloat d = 11;
+        self.dot = [[UIView alloc] initWithFrame:CGRectMake(s - d - 1, s - d - 1, d, d)];
+        self.dot.layer.cornerRadius = d / 2;
+        self.dot.layer.borderWidth = 1;
+        self.dot.layer.borderColor = [UIColor colorWithWhite:0 alpha:0.45].CGColor;
+        self.dot.userInteractionEnabled = NO;
+        [self.orb addSubview:self.dot];
+
         self->_win = w;
+        [self updateStatus];
+        [self.statusTimer invalidate];
+        self.statusTimer = [NSTimer scheduledTimerWithTimeInterval:1.0
+                                                           target:self
+                                                         selector:@selector(updateStatusTimer:)
+                                                         userInfo:nil
+                                                          repeats:YES];
         FFLOG(@"menu installed");
     });
+}
+
+- (void)updateStatusTimer:(NSTimer *)t {
+    (void)t;
+    [self updateStatus];
+}
+
+- (void)updateStatus {
+    if (!self.dot) return;
+    UIColor *c;
+    if ([USModel ready]) {
+        c = [USModel w2sReady]
+            ? [UIColor colorWithRed:0.71 green:1.00 blue:0.24 alpha:1]
+            : [UIColor colorWithRed:1.00 green:0.72 blue:0.16 alpha:1];
+    } else {
+        c = [UIColor colorWithRed:1.00 green:0.24 blue:0.28 alpha:1];
+    }
+    self.dot.backgroundColor = c;
 }
 
 - (void)drag:(UIPanGestureRecognizer *)g {
@@ -250,7 +292,13 @@ typedef NS_ENUM(NSInteger, RowKind) { RowToggle, RowRange, RowSegment, RowInfo }
     title.font = MONO(14);
     title.textColor = [UIColor colorWithWhite:0.91 alpha:1];
     UILabel *sub = [[UILabel alloc] initWithFrame:CGRectMake(pad, 32, w - 120, 12)];
-    sub.text = @"NATIVE LAYER";
+    // State is in the header, not only behind DIAGNOSTICS: the whole
+    // "features do nothing" class of failure is a bind that never happened,
+    // and it has to be visible the moment the panel opens.
+    sub.text = [NSString stringWithFormat:@"%@ / w2s %@ / %@",
+                [USModel ready] ? @"BOUND" : @"NOT BOUND",
+                [USModel w2sMode],
+                [USConfig.shared schemaSource]];
     sub.font = MONO(8);
     sub.textColor = DIM;
     [hdr addSubview:title];

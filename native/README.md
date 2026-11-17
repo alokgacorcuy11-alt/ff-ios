@@ -194,8 +194,15 @@ Copy the file and fill it in:
 
 ```bash
 cp native/ff_native.example.json state/ff_native.json   # OPTIONAL - only to pin a build
-# ... edit ...
+# ... edit every CHANGE_ME ...
 ```
+
+**It is all-or-nothing.** The map is an override, so it has to describe this
+build completely: `container_class`, `container_static`, `list_field` and
+`position_field` must be real names, not `CHANGE_ME`. The dylib validates them
+(`FFSchemaUsable`) and, if the map is still a template or fails to bind, it
+deletes the file and falls back to the live resolver instead of binding to
+nothing. The panel header then reads `schema none`, not `schema file`.
 
 The proxy serves it immediately at `GET /api/native`, and the dylib picks it up
 within 30 s **without relaunching the game**. Verify:

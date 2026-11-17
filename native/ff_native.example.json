@@ -52,6 +52,10 @@
     "icall_fov": "UnityEngine.Camera::get_fieldOfView",
     "icall_fov_candidates": [
       "UnityEngine.Camera::get_fieldOfView"
+    ],
+    "icall_component_transform": "UnityEngine.Component::get_transform",
+    "icall_component_transform_candidates": [
+      "UnityEngine.Component::get_transform"
     ]
   },
 

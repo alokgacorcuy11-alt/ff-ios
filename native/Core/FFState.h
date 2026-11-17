@@ -45,6 +45,18 @@ extern NSString *kFFGainY;           // cal.gain_y
 - (BOOL)schemaReady;
 - (void)reloadSchema;
 
+// True only for a map that can actually be bound: player.container_class,
+// container_static, list_field and position_field present, and none of them a
+// template value ("CHANGE_ME", "??", ...). A schema file is an override and has
+// to earn it.
+FOUNDATION_EXPORT BOOL FFSchemaUsable(NSDictionary *s);
+
+// where the active map came from: "none" | "bundle" | "file" | "proxy"
+- (NSString *)schemaSource;
+
+// Delete a map that failed to bind, so it cannot poison the next launch.
+- (void)rejectSchema:(NSString *)why;
+
 // remote control: poll the proxy panel so toggles made in the WebView menu
 // (or on the laptop) apply here without relaunching the game
 - (void)startSyncWith:(NSString *)baseURL;

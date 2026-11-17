@@ -1408,6 +1408,90 @@ def audit_passthrough():
           "rootViewController.view.userInteractionEnabled = NO" in esp)
 
 
+def audit_schema_guard():
+    """A schema file is an override, so it must be able to lose.
+
+    The boot path used to decide "the operator supplied a map" from
+    `container_class.length > 0`. The shipped template's value is "CHANGE_ME",
+    which is non-empty - so copying the example to state/ff_native.json (which
+    README recommends) made the dylib bind against a placeholder map, every
+    field lookup return NULL, and ESP/aim do nothing. The proxy also wrote that
+    map into Documents, so it survived reinstalls. Three guards are required:
+    validate before binding, fall back to the live resolver, and delete the
+    poisoned file.
+    """
+    state = (NATIVE / "Core" / "FFState.m").read_text(encoding="utf-8")
+    game = (NATIVE / "Core" / "Game.m").read_text(encoding="utf-8")
+    tweak = (NATIVE / "Tweak.x").read_text(encoding="utf-8")
+    hdr = (NATIVE / "Core" / "FFState.h").read_text(encoding="utf-8")
+
+    check("FFSchemaUsable is declared", "FFSchemaUsable" in hdr)
+    check("the placeholder list covers the template tokens",
+          "CHANGE_ME" in state and "??" in state)
+    for key in ("container_class", "container_static", "list_field", "position_field"):
+        check(f"schema validation requires {key}", key in state)
+
+    # bind must refuse a template, not merely an empty dict
+    check("bindWithSchema rejects an unusable schema",
+          "FFSchemaUsable(s)" in game and "not binding to it" in game)
+    check("the old length-only gate is gone",
+          '[map[@"player"][@"container_class"] length]' not in tweak)
+
+    # the boot path must not gate on container_class.length anymore
+    check("FFBind validates instead of guessing",
+          "BOOL fromProxy = FFSchemaUsable(map);" in tweak)
+    check("FFBind falls back to the live resolver",
+          "rejectSchema:@\"bind failed\"" in tweak and "autoBind" in tweak)
+    check("a failed bind is not latched off",
+          "if (gBound && [USModel ready]) return;" in tweak)
+    check("the rebind loop does not give up",
+          "FFArmBindRetry(int n)" in tweak and "n < 20" in tweak)
+
+    # the proxy must not poison Documents with a diagnostic wrapper
+    check("proxy schemas are validated before being adopted",
+          "if (!FFSchemaUsable(json))" in state)
+    check("rejectSchema deletes the file on disk",
+          "removeItemAtPath:p" in state)
+    check("schema source is reported",
+          "schemaSource" in state and "schema source" in game)
+
+    # diagnostics + menu must surface the state, not hide it
+    menu = (NATIVE / "Menu" / "FFMenu.m").read_text(encoding="utf-8")
+    check("the orb shows bind health", "updateStatus" in menu and "self.dot" in menu)
+    check("the panel header shows bind state",
+          "NOT BOUND" in menu and "w2s" in menu)
+
+
+def audit_camera_source():
+    """The camera pose must come from the engine, not from a guessed field.
+
+    `transformUsable` can only ask "does this answer position and rotation like
+    a Transform?" - and every bone on the player does. A bone's frame projects
+    the world through the wrong transform: boxes land nowhere, the aim points
+    elsewhere, and nothing crashes to say so. Camera.main -> Component::
+    get_transform is the exact transform the renderer uses, so it is the primary
+    path and the player-field candidates are the fallback.
+    """
+    game = (NATIVE / "Core" / "Game.m").read_text(encoding="utf-8")
+    resolver = (NATIVE / "Core" / "Resolve.m").read_text(encoding="utf-8")
+    schema = json.loads((NATIVE / "ff_native.example.json").read_text(encoding="utf-8"))
+
+    check("the engine camera path exists", "cameraFromEngine" in game)
+    check("Component::get_transform is resolved",
+          "icall_component_transform" in resolver and "icGetTransform = resolveGroup" in game)
+    check("the icall name is in the schema",
+          schema["camera"].get("icall_component_transform")
+          == "UnityEngine.Component::get_transform")
+
+    body = game.split("static Il2CppObject *localCameraTransform(void) {", 1)
+    check("localCameraTransform tries the engine first",
+          len(body) == 2 and "cameraFromEngine()" in body[1].split("return NULL;")[0])
+    check("the returned object is identity-checked",
+          "object_get_class(tr) != transformCls" in game)
+    check("the camera source is reported",
+          'gCamTrSource = @"Camera.main.transform"' in game)
+
+
 def main() -> int:
     print("=" * 66)
     print(" source audit - native dylib + menu assets")
@@ -1457,6 +1541,10 @@ def main() -> int:
     audit_symtab_bounds()
     print()
     audit_passthrough()
+    print()
+    audit_schema_guard()
+    print()
+    audit_camera_source()
     print()
     if FAIL:
         print(f"{FAIL} check(s) FAILED")

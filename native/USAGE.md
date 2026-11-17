@@ -238,6 +238,7 @@ frida -U -f com.dts.freefireth -l tools/il2cpp_hunt.js --no-pause
 
 # 2. write them into the map the proxy serves
 notepad state\ff_native.json   # OPTIONAL - the dylib self-resolves          # or your editor
+#    every CHANGE_ME must be replaced, or the dylib rejects the file
 #    check it:  curl http://127.0.0.1:8082/api/native
 
 # 3. relaunch FF. The dylib pulls it within 30s and logs:
@@ -286,7 +287,7 @@ or `position_method` is wrong — DIAGNOSTICS tells you which.
 | No orb | dylib not mapped | Console.app → filter `ffmenu` → `dylib loaded (pid N)`. Nothing = entitlement/sign issue |
 | `missing il2cpp symbol` | wrong `image` | some builds keep il2cpp in the main binary: set `image` to the app binary name |
 | `bind PARTIAL` | a name in the map is wrong | the log names the exact field/class |
-| Orb appears, toggles do nothing | schema never filled | `state/ff_native.json` still has `"??"` |
+| Orb appears, toggles do nothing | schema never filled | the lamp on the orb is **red** = not bound. If the panel header says `schema file`, your map still has `CHANGE_ME` in it - delete `state/ff_native.json`, the dylib refuses it and falls back to the live resolver |
 | No boxes, DIAGNOSTICS all ok | not in a match, or positions wrong | check `position_method`; try `get_position` vs `get_worldPosition` |
 | Boxes on teammates | `team_field` wrong | re-run `dumpFields` on the element class |
 | Boxes huge/tiny | depth wrong | `camera.boxed_value_offset` off, or the w2s method returns world units not pixels |

@@ -19,6 +19,37 @@
 
 typedef NS_ENUM(NSInteger, RowKind) { RowToggle, RowRange, RowSegment, RowInfo };
 
+// ---------------------------------------------------------------- passthrough
+//
+// A clear window above the game must not eat touches.
+//
+// UIView's -hitTest:withEvent: returns the view ITSELF when no subview matches,
+// and a UIWindow does the same - so an empty, fully transparent window still
+// becomes the touch target for every tap on screen. The game keeps rendering
+// normally (it is just a window below ours) but nothing responds: exactly the
+// "the app is up, login does nothing" symptom. A full-screen overlay needs both
+// halves to decline the hit - the window and its root view - because the window
+// only consults subviews and then falls back to itself.
+@interface USPassthroughWindow : UIWindow
+@end
+
+@implementation USPassthroughWindow
+- (UIView *)hitTest:(CGPoint)point withEvent:(UIEvent *)event {
+    UIView *v = [super hitTest:point withEvent:event];
+    return (v == self) ? nil : v;      // not ours -> let the window below have it
+}
+@end
+
+@interface USPassthroughView : UIView
+@end
+
+@implementation USPassthroughView
+- (UIView *)hitTest:(CGPoint)point withEvent:(UIEvent *)event {
+    UIView *v = [super hitTest:point withEvent:event];
+    return (v == self) ? nil : v;      // bare background -> not a target
+}
+@end
+
 // ---------------------------------------------------------------- rows
 @interface USRow : NSObject
 @property (nonatomic, copy) NSString *group, *label, *key, *unit, *hint;
@@ -113,11 +144,20 @@ typedef NS_ENUM(NSInteger, RowKind) { RowToggle, RowRange, RowSegment, RowInfo }
 // ---------------------------------------------------------------- install
 - (void)install {
     dispatch_async(dispatch_get_main_queue(), ^{
-        UIWindow *w = [[UIWindow alloc] initWithFrame:[UIScreen mainScreen].bounds];
+        USPassthroughWindow *w =
+            [[USPassthroughWindow alloc] initWithFrame:[UIScreen mainScreen].bounds];
         w.windowLevel = UIWindowLevelNormal + 256;
         w.backgroundColor = UIColor.clearColor;
-        w.rootViewController = [UIViewController new];
-        w.rootViewController.view.backgroundColor = UIColor.clearColor;
+        // The root view must be pass-through too: a plain UIView would return
+        // itself from hitTest for every point outside the orb, which is the
+        // whole screen. Set the view before installing the controller so the
+        // window never hosts a root view of the wrong class.
+        UIViewController *host = [UIViewController new];
+        host.view = [[USPassthroughView alloc] initWithFrame:w.bounds];
+        host.view.backgroundColor = UIColor.clearColor;
+        host.view.autoresizingMask = UIViewAutoresizingFlexibleWidth |
+                                     UIViewAutoresizingFlexibleHeight;
+        w.rootViewController = host;
         w.hidden = NO;
 
         CGFloat s = 52;

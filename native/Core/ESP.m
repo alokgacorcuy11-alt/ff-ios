@@ -51,6 +51,10 @@
         w.backgroundColor = UIColor.clearColor;
         w.rootViewController = [UIViewController new];
         w.rootViewController.view.backgroundColor = UIColor.clearColor;
+        // Draw only. The window is already non-interactive, but its root view
+        // would otherwise be a full-screen interactive UIView - one flag away
+        // from swallowing every tap on screen.
+        w.rootViewController.view.userInteractionEnabled = NO;
         w.userInteractionEnabled = NO;
         [w.rootViewController.view addSubview:self];
         w.hidden = NO;

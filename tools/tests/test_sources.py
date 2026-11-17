@@ -1375,6 +1375,39 @@ def audit_symtab_bounds():
           "sizeofcmds" in code and "limit" in code)
 
 
+def audit_passthrough():
+    """A clear window above the game must decline every touch it does not own.
+
+    -[UIView hitTest:withEvent:] returns the view ITSELF when nothing inside it
+    matches, and a UIWindow does the same - so a transparent, empty full-screen
+    window is still the target for every tap on screen. The game keeps rendering
+    (it is only a window below ours) and nothing responds, which reads as "login
+    is broken". Both the window and its root view have to return nil for a hit on
+    themselves; one alone is not enough, because the window only consults its
+    subviews and then falls back to itself.
+    """
+    menu = strip_comments((NATIVE / "Menu" / "FFMenu.m").read_text(encoding="utf-8"))
+    esp = strip_comments((NATIVE / "Core" / "ESP.m").read_text(encoding="utf-8"))
+
+    check("the menu declares a hitTest-declining window",
+          "@interface USPassthroughWindow : UIWindow" in menu)
+    check("the menu declares a hitTest-declining root view",
+          "@interface USPassthroughView : UIView" in menu)
+    check("both decline a hit on themselves",
+          menu.count("(v == self) ? nil : v") >= 2,
+          f"-> {menu.count('(v == self) ? nil : v')} occurrence(s)")
+    check("the menu window is created as the subclass",
+          "[[USPassthroughWindow alloc] initWithFrame:" in menu)
+    check("the menu root view is created as the subclass",
+          "[[USPassthroughView alloc] initWithFrame:" in menu)
+    check("no bare UIWindow is created in the menu",
+          "[UIWindow alloc] initWithFrame:" not in menu)
+    check("the esp window cannot take a touch",
+          re.search(r"w\.userInteractionEnabled\s*=\s*NO", esp) is not None)
+    check("the esp root view cannot take a touch either",
+          "rootViewController.view.userInteractionEnabled = NO" in esp)
+
+
 def main() -> int:
     print("=" * 66)
     print(" source audit - native dylib + menu assets")
@@ -1422,6 +1455,8 @@ def main() -> int:
     audit_load_selector()
     print()
     audit_symtab_bounds()
+    print()
+    audit_passthrough()
     print()
     if FAIL:
         print(f"{FAIL} check(s) FAILED")

@@ -448,6 +448,20 @@ def audit_workflow():
         check(f"{p.name} makes test failures readable from the API",
               "GITHUB_ACTIONS" in body or "::error" in body)
 
+        # The compiled dylib has to reach a machine that already has the IPA,
+        # and artifacts cannot be fetched without signing in. A branch can.
+        if "dist/FFMenu.dylib" in body:
+            check(f"{p.name} may write to the repository (contents: write)",
+                  (doc.get("permissions") or {}).get("contents") == "write"
+                  or any((jb.get("permissions") or {}).get("contents") == "write"
+                         for jb in jobs.values()),
+                  "-> without it the publish step fails with 403")
+            check(f"{p.name} publishes to a branch, not to main",
+                  "HEAD:build" in body)
+            ignore = (ROOT / ".gitignore").read_text(encoding="utf-8")
+            check("dist/ is ignored on main so it cannot be committed by accident",
+                  "dist/" in ignore)
+
 
 def audit_menu_assets():
     fj = ROOT / "menu" / "features.json"

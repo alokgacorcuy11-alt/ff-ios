@@ -1,5 +1,13 @@
 name: build-and-package
 
+# The build job publishes the compiled dylib to a `build` branch. Artifacts
+# cannot be downloaded without signing in, even on a public repository, so a
+# branch is the only way to hand the binary to anything unauthenticated - and
+# that is what lets the packaging happen on a machine that already has the IPA
+# instead of uploading 510 MB to CI.
+permissions:
+  contents: write
+
 # Builds native/FFMenu.dylib on a macOS runner, verifies that it does not
 # advertise itself, and - if an IPA is available - packages the final IPA and
 # uploads it with a manifest. You never need a Mac, and you never need to run
@@ -269,6 +277,30 @@ jobs:
           path: native/.theos/obj/**/*.dylib
           if-no-files-found: error
           retention-days: 30
+
+      - name: publish the dylib to the build branch
+        if: success()
+        run: |
+          set -euo pipefail
+          D="${{ steps.find.outputs.dylib }}"
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          mkdir -p dist
+          cp "$D" dist/FFMenu.dylib
+          {
+            echo "built  : $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+            echo "commit : $GITHUB_SHA"
+            echo "run    : $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+            echo "sha256 : $(shasum -a 256 dist/FFMenu.dylib | cut -d' ' -f1)"
+            echo "size   : $(wc -c < dist/FFMenu.dylib | tr -d ' ') bytes"
+            echo "archs  : $(lipo -archs dist/FFMenu.dylib)"
+          } > dist/BUILD.txt
+          git add -f dist/FFMenu.dylib dist/BUILD.txt
+          git commit -m "build: FFMenu.dylib for ${GITHUB_SHA:0:7}"
+          # The build branch is disposable and is replaced on every green run.
+          git push origin HEAD:build --force
+          echo "--- published ---"
+          cat dist/BUILD.txt
 
   # ------------------------------------------------------------------ package
   package:

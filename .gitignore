@@ -5,6 +5,7 @@
 out/
 logs/
 state/
+dist/
 native/.theos/
 .theos/
 build.log

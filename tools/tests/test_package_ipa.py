@@ -235,21 +235,41 @@ check("no two bundles in the payload share an identifier",
 check("the framework identifier still reads as a vendor framework",
       (fw_id or "").startswith("com.vendor."), f"-> {fw_id}")
 
-print("\n--- verify the header was not corrupted ---")
+print("\n--- the load commands must stay legal after patching ---")
 with zipfile.ZipFile(out3) as z:
     exe = z.read("Payload/FreeFire.app/FreeFire")
 be = struct.unpack_from(">I", exe, 0)[0]
 check("still a fat binary after patching", be == 0xCAFEBABE, f"-> 0x{be:08x}")
 # each slice: ncmds grew, sizeofcmds grew, and it still parses
 nfat = struct.unpack_from(">I", exe, 4)[0]
+LC_LOAD_DYLIB = 0x0C
+LC_CODE_SIGNATURE = 0x1D
 ok = True
+order_ok = True
 for i in range(nfat):
     o = struct.unpack_from(">I", exe, 8 + i * 20 + 8)[0]
     magic = struct.unpack_from("<I", exe, o)[0]
     ncmds, sizeofcmds = struct.unpack_from("<II", exe, o + 16)
     if magic != 0xFEEDFACF or ncmds == 0 or sizeofcmds == 0:
         ok = False
+    # Apple requires LC_CODE_SIGNATURE to be the last load command: the kernel
+    # takes the signature blob from it and hashes everything before it. A
+    # command after it can never be covered by a valid signature, and the app is
+    # killed at launch - before its own code runs - which is what a crash on tap
+    # with no splash screen looks like.
+    p = o + 32
+    cmds = []
+    for _ in range(ncmds):
+        c, sz = struct.unpack_from("<II", exe, p)
+        cmds.append(c)
+        p += sz
+    if LC_CODE_SIGNATURE in cmds and cmds[-1] != LC_CODE_SIGNATURE:
+        order_ok = False
+    if LC_LOAD_DYLIB not in cmds:
+        order_ok = False
 check("every slice still has a valid header", ok)
+check("LC_CODE_SIGNATURE is still the last load command", order_ok,
+      "-> an injected command landed after the signature")
 
 print()
 if FAIL:

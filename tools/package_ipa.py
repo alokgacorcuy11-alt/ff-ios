@@ -47,6 +47,8 @@ LC_ENCRYPTION_INFO = 0x21
 LC_ENCRYPTION_INFO_64 = 0x2C
 LC_LOAD_DYLIB = 0x0C
 LC_ID_DYLIB = 0x0D
+# Must remain the LAST load command in any binary the kernel will validate.
+LC_CODE_SIGNATURE = 0x1D
 
 
 class PkgError(RuntimeError):
@@ -131,13 +133,35 @@ def slices_of(data: bytes) -> list[dict]:
 
 
 def inject(data: bytes, target: str) -> tuple[bytes, list[dict]]:
-    """Insert one LC_LOAD_DYLIB per slice, in place. Returns patched bytes."""
+    """Insert one LC_LOAD_DYLIB per slice, in place. Returns patched bytes.
+
+    The new command goes in BEFORE LC_CODE_SIGNATURE, not at the end.
+
+    Apple requires LC_CODE_SIGNATURE to be the LAST load command: the kernel
+    locates the signature blob from it and folds everything before it into the
+    hash. Appending after it produces a binary whose signature can never be made
+    valid - the app then dies at launch, before its own code runs a single
+    instruction, which is exactly what a "crash on tap, before the splash
+    screen" looks like. insert_dylib solves the same problem the same way.
+    """
     buf = bytearray(data)
     report = []
     for sl in slices_of(data):
         cmd = dylib_cmd_bytes(target)
         need = len(cmd)
         lc_end = sl["off"] + sl["lc_end"]
+
+        # where does LC_CODE_SIGNATURE sit?
+        sig_at, p = None, sl["off"] + sl["hdr"]
+        for _ in range(sl["ncmds"]):
+            c, sz = struct.unpack_from("<II", buf, p)
+            if c == LC_CODE_SIGNATURE:
+                sig_at = p
+                break
+            p += sz
+
+        # insert before the signature command so it stays last
+        at = sig_at if sig_at is not None else lc_end
         limit = sl["off"] + sl["first_data"] if sl["first_data"] else len(buf)
         free = limit - lc_end
         if free < need:
@@ -148,10 +172,17 @@ def inject(data: bytes, target: str) -> tuple[bytes, list[dict]]:
                 f"  insert_dylib --inplace --overwrite --strip-codesig "
                 f"--codesign '{target}' <binary>"
             )
-        buf[lc_end:lc_end + need] = cmd
+        # Shift the commands that follow (the signature command, at minimum) to
+        # the right, inside the header padding, and drop ours in the gap. The
+        # file length must not change: inserting with `buf[at:at] = cmd` grows the
+        # buffer and every offset after it moves, which corrupts the image. The
+        # test caught exactly that on the first attempt.
+        buf[at + need:lc_end + need] = buf[at:lc_end]
+        buf[at:at + need] = cmd
         struct.pack_into("<I", buf, sl["off"] + 16, sl["ncmds"] + 1)
         struct.pack_into("<I", buf, sl["off"] + 20, sl["sizeofcmds"] + need)
-        report.append({"slice": hex(sl["off"]), "added": need, "free_before": free})
+        report.append({"slice": hex(sl["off"]), "added": need, "free_before": free,
+                       "before_signature": sig_at is not None})
     return bytes(buf), report
 
 
@@ -160,13 +191,25 @@ def verify(data: bytes, target: str) -> list[str]:
     have = []
     for sl in slices_of(data):
         p = sl["off"] + sl["hdr"]
+        last_cmd = None
         for _ in range(sl["ncmds"]):
             cmd, cmdsize = struct.unpack_from("<II", data, p)
             if cmd == LC_LOAD_DYLIB:
                 name_off = struct.unpack_from("<I", data, p + 8)[0]
                 end = data.find(b"\x00", p + name_off)
                 have.append(data[p + name_off:end].decode("utf-8", "replace"))
+            last_cmd = cmd
             p += cmdsize
+        if last_cmd == LC_LOAD_DYLIB:
+            # We just put a load command where the signature belongs. The kernel
+            # takes the signature from LC_CODE_SIGNATURE and hashes everything
+            # before it, so a command after it can never be covered - the app is
+            # killed at launch before it runs a single instruction.
+            raise PkgError(
+                f"slice at 0x{sl['off']:x}: LC_LOAD_DYLIB ended up as the LAST "
+                f"load command, which means LC_CODE_SIGNATURE is no longer last. "
+                f"Refusing to write a payload that cannot be signed."
+            )
     if target not in have:
         raise PkgError(f"verification failed - {target} not present after patch "
                        f"(found: {sorted(set(have))})")

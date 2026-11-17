@@ -86,13 +86,57 @@ static void FFArmBindRetry(void) {
     });
 }
 
+// ---------------------------------------------------------------- entry
+//
+// Nothing below may touch UIKit or dyld at LOAD time.
+//
+// This dylib is pulled in by an LC_LOAD_DYLIB in the app's main executable, so
+// its initialisers run during dyld's own image initialisation - before the
+// app's initialisers, before main(), and while dyld is still building the very
+// image list we exist to hide from. Doing real work here was wrong twice over:
+//
+//   * UIKit: there is no UIApplication yet, so creating a window or registering
+//     a notification observer is undefined (and the app dies before its first
+//     frame - a crash on tap, before any splash screen)
+//   * dyld: _dyld_image_count / _dyld_get_image_header from an image initialiser
+//     walk a list that is still being built, and rewriting another image's GOT
+//     slots with vm_protect races the loader that is about to fill them in
+//
+// So the initialiser only schedules. The real work happens on the main queue,
+// as soon as UIApplication exists - which is still before Unity starts, so the
+// stealth layer is installed long before the game looks at anything.
+
+static void USBootWhenReady(int tries);
+
 __attribute__((constructor))
 static void USInit(void) {
+    dispatch_async(dispatch_get_main_queue(), ^{
+        USBootWhenReady(0);
+    });
+}
+
+static void USBootWhenReady(int tries) {
+    // 600 x 0.05 s = 30 s. UIApplication exists within a few run-loop turns of
+    // UIApplicationMain, so this normally succeeds on the first attempt.
+    if (!UIApplication.sharedApplication) {
+        if (tries < 600) {
+            dispatch_after(dispatch_time(DISPATCH_TIME_NOW,
+                                         (int64_t)(0.05 * NSEC_PER_SEC)),
+                           dispatch_get_main_queue(), ^{
+                USBootWhenReady(tries + 1);
+            });
+        } else {
+            FFLOG(@"gave up waiting for UIApplication");
+        }
+        return;
+    }
+
     // verbosity first, so the lines below respect it. Silent unless asked.
     FFSetVerbose([USConfig.shared isOn:kFFVerbose]);
     USCloakTier tier = [USCloak install];   // stealth first, before anything
     FFLOG(@"loaded (pid %d) %@", getpid(), [USCloak report]);
     (void)tier;
+
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.0 * NSEC_PER_SEC)),
                    dispatch_get_main_queue(), ^{
         FFBoot();

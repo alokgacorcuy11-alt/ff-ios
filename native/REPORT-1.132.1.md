@@ -261,13 +261,13 @@ are invisible on a Windows working copy:
 
 | bug | why nothing offline caught it |
 |---|---|
+| `tools/package_ipa.py` appended the injected `LC_LOAD_DYLIB` **at the end of the load commands - i.e. after `LC_CODE_SIGNATURE`** | Apple requires `LC_CODE_SIGNATURE` to be the last command: the kernel takes the signature blob from it and covers everything before it, so a command after it can never be part of a valid signature and the process is killed at launch. The symptom is "the app crashes the instant you tap it, before the splash screen" - which reads as a bug in our own code and sends you debugging the wrong layer. The synthetic fixture had `LC_CODE_SIGNATURE` last, so the ordering test now pins it, and `ipa_probe.py` reports the violation on any payload. |
 | `Menu/FFMenu.m`: `#define R(g,l,k,kind) ... r.kind=kind ...` expanded to `r.RowToggle=RowToggle` | the preprocessor replaces every occurrence of a parameter name, including the token after the dot. Nine errors at nine call sites, all reading "property 'RowToggle' not found on object of type 'USRow *'". Now guarded by `audit_macro_params()`, with self-tests that prove it can fail. |
 | `Core/Game.m`: `int tried` was only read by `FFLOG` | `make RELEASE=1` compiles every `FFLOG` out, so the variable is write-only there — and Theos builds with `-Werror`, so it is a hard error rather than a warning. Now guarded by `tools/lint_logonly.py`, which found a second instance (`Inject.m`, `moved`) that is now part of the self-test's return value. |
+| `Tweak.x`: the constructor called `[USCloak install]`, `_dyld_image_count`, `dladdr` and registered a UIKit notification observer **during dyld image initialisation** | at that point UIKit has no `UIApplication`, and dyld is still building the image list we exist to hide from - so we walked a list that was mid-construction and rewrote other images' GOT slots with `vm_protect` while the loader was about to fill them. The initialiser now only schedules; the work happens on the main queue once `UIApplication` exists, which is still before Unity starts. `audit_entry_point()` fails the build if it regresses. |
 
 Two more that were infrastructure rather than code, recorded because both cost a
-run to find and neither is guessable from the repository alone:
-
-- `macos-14` no longer resolves to a usable configuration on this account
+run to find and neither is guessable from the repository alone:- `macos-14` no longer resolves to a usable configuration on this account
   (`The configuration 'macos-14-arm64-us-default' is not supported`), and
   `macos-latest` resolves to an arm64 image that sat unassigned in the queue for
   15 minutes before being cancelled. `macos-15-intel` schedules immediately;

@@ -138,6 +138,7 @@ def slice_report(data: bytes, offset: int = 0) -> dict:
 
     p = offset + hdr_size
     end = p + sizeofcmds
+    last_cmd = None
     for _ in range(ncmds):
         if p + 8 > offset + len(data) or p >= end:
             break
@@ -157,7 +158,17 @@ def slice_report(data: bytes, offset: int = 0) -> dict:
             name_off = u32(p + 8)
             name = _read_cstr(data, p + name_off, cmdsize)
             rep["dylibs"].append({"cmd": DYLIB_CMDS[cmd], "name": name})
+        last_cmd = cmd
         p += cmdsize
+
+    # Apple requires LC_CODE_SIGNATURE to be the LAST load command: the kernel
+    # locates the signature blob from it and covers everything before it. A
+    # command appended after it can never be part of a valid signature, and the
+    # app is killed at launch before its own code runs - which is what a crash
+    # on tap with no splash screen looks like. Injectors that append blindly
+    # produce exactly this.
+    rep["signature_is_last"] = last_cmd in (None, LC_CODE_SIGNATURE)
+    rep["last_command"] = last_cmd
     return rep
 
 
@@ -347,6 +358,13 @@ def verdict(r: dict) -> str:
     else:
         head = "DECRYPTED - payload can be patched"
 
+    # a fatal shape error outranks everything else: whatever the dylib does, the
+    # process never reaches it
+    if not all(s.get("signature_is_last", True) for s in r.get("slices") or []):
+        return (f"{head}  |  BROKEN - a load command sits after "
+                f"LC_CODE_SIGNATURE, so no signature can be valid and the app is "
+                f"killed at launch before it runs")
+
     if inj:
         loose = sorted({d["name"].split("/")[-1] for d in inj})
         tail = f"MODIFIED - injected dylib load command(s): {', '.join(loose)}"
@@ -415,6 +433,15 @@ def main() -> int:
         print(f" codesig     : LC_CODE_SIGNATURE={'yes' if r['code_signature'] else 'no'}  "
               f"_CodeSignature/={'yes' if r['has_codesignature_dir'] else 'no'}  "
               f"mobileprovision={'yes' if r['provisioning'] else 'no'}")
+        # A load command after LC_CODE_SIGNATURE cannot be covered by any
+        # signature, so the install dies at launch. Worth stating loudly: the
+        # failure looks like "the app crashes immediately" and sends you
+        # debugging your own code instead of the patch.
+        if not all(s.get("signature_is_last", True) for s in r["slices"]):
+            print(" load cmds   : ** LC_CODE_SIGNATURE is NOT the last command - "
+                  "the binary cannot be validly signed and will be killed at launch")
+        else:
+            print(" load cmds   : LC_CODE_SIGNATURE is last (signable)")
         print(f" frameworks  : {len(r['frameworks'])}")
         if r["dylibs_in_bundle"]:
             print(f" dylibs      : {', '.join(r['dylibs_in_bundle'])}")

@@ -1280,6 +1280,48 @@ def audit_macro_params():
               "-> " + "; ".join(bad) if bad else "")
 
 
+def audit_entry_point():
+    """The dylib's initialiser runs during dyld's own image initialisation.
+
+    UIKit does not exist yet, and dyld's image list is still being built - so
+    calling _dyld_image_count or rewriting another image's GOT slots from a
+    constructor races the loader, and creating a window kills the app before its
+    first frame. The initialiser may only schedule; the work belongs on the main
+    queue once UIApplication exists.
+    """
+    t = (NATIVE / "Tweak.x").read_text(encoding="utf-8")
+    code = strip_literals(t)
+
+    m = re.search(r"__attribute__\(\(constructor\)\)\s*\nstatic void USInit\(void\) \{(.*?)\n\}\n",
+                  code, re.S)
+    check("Tweak.x has a constructor", m is not None)
+    if not m:
+        return
+    body = m.group(1)
+    check("the constructor only schedules work",
+          "dispatch_async" in body or "dispatch_after" in body)
+    forbidden = {
+        "_dyld": "dyld's image list is not settled during image init",
+        "dladdr": "same list, same problem",
+        "USCloak": "rebinding other images' GOT slots races the loader",
+        "UIWindow": "no UIApplication exists yet",
+        "USPanel": "creates a window",
+        "USOverlay": "creates a window",
+        "NSNotificationCenter": "UIKit/Foundation app state is not up",
+        "USConfig": "reads the bundle and NSUserDefaults before launch",
+    }
+    bad = [f"{tok} ({why})" for tok, why in forbidden.items() if tok in body]
+    check("the constructor touches neither dyld nor UIKit", not bad,
+          "-> " + "; ".join(bad) if bad else "")
+
+    # and the deferred path must actually do the work, or stealth never installs
+    check("the deferred boot installs the stealth layer", "USCloak install" in code)
+    check("the deferred boot waits for UIApplication",
+          "UIApplication.sharedApplication" in code)
+    check("the wait is bounded",
+          re.search(r"tries < \d+", code) is not None)
+
+
 def main() -> int:
     print("=" * 66)
     print(" source audit - native dylib + menu assets")
@@ -1321,6 +1363,8 @@ def main() -> int:
     audit_script_modes()
     print()
     audit_macro_params()
+    print()
+    audit_entry_point()
     print()
     if FAIL:
         print(f"{FAIL} check(s) FAILED")

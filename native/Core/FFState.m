@@ -2,6 +2,10 @@
 
 #import "FFState.h"
 #import "Obf.h"
+#import "Secrets.h"
+#import "Integrity.h"
+
+#include <unistd.h>
 
 // The feature keys are stored encoded and decoded in +load (below), so the
 // binary carries no plaintext "esp.*" / "aim.*" strings to grep for. The blob
@@ -227,7 +231,7 @@ static NSString *DocumentsDir(void) {
 
 - (void)reloadSchema {
     // 1. bundled copy next to the dylib (always available, offline safe)
-    NSDictionary *s = [self loadJSON:@"ff_native" dir:nil];
+    NSDictionary *s = [self loadJSON:FFSecretText(FFSecretSchemaBase) dir:nil];
     NSString *src = s ? @"bundle" : @"none";
     if (s && !FFSchemaUsable(s)) {
         FFLOG(@"bundled schema is a template - ignoring it");
@@ -238,7 +242,7 @@ static NSString *DocumentsDir(void) {
     // 2. proxy copy overrides it - lets you fix offsets after a game patch
     //    without rebuilding or re-signing the IPA. Read WITHOUT the bundle
     //    fallback, so `src` tells the truth about where the map came from.
-    NSString *remotePath = [DocumentsDir() stringByAppendingPathComponent:@"ff_native.json"];
+    NSString *remotePath = [DocumentsDir() stringByAppendingPathComponent:FFSecretText(FFSecretSchemaFile)];
     NSDictionary *remote = [self loadJSONFile:remotePath];
     if (remote) {
         if (FFSchemaUsable(remote)) {
@@ -248,7 +252,11 @@ static NSString *DocumentsDir(void) {
             // A template left here by a previous run survives reinstall (the
             // Documents dir is only wiped when the app is deleted, and iTunes
             // backups restore it). Delete it now or it poisons every launch.
-            [[NSFileManager defaultManager] removeItemAtPath:remotePath error:nil];
+            //
+            // unlink, not -removeItemAtPath:. Our own hooks answer ENOENT for
+            // this filename, and NSFileManager stats before it removes, so the
+            // high-level call would fail and leave the file in place.
+            unlink(remotePath.fileSystemRepresentation);
             FFLOG(@"schema file rejected (template values) - deleted %@", remotePath);
         }
     }
@@ -262,9 +270,13 @@ static NSString *DocumentsDir(void) {
 
 // Documents-only read. `loadJSON:dir:` falls back to the bundle when the file
 // is absent, which made "did the operator supply a map?" unanswerable.
+//
+// Both readers go through USIntegrity's real-syscall path: our own open/stat
+// hooks hide this filename process-wide, ourselves included, so the plain
+// NSData/NSFileManager route would answer "no such file" to us as well.
 - (NSDictionary *)loadJSONFile:(NSString *)path {
-    if (!path.length || ![[NSFileManager defaultManager] fileExistsAtPath:path]) return nil;
-    NSData *d = [NSData dataWithContentsOfFile:path];
+    if (!path.length) return nil;
+    NSData *d = [USIntegrity dataAtPath:path];
     if (!d) return nil;
     id o = [NSJSONSerialization JSONObjectWithData:d options:0 error:nil];
     return [o isKindOfClass:NSDictionary.class] ? o : nil;
@@ -276,24 +288,24 @@ static NSString *DocumentsDir(void) {
 
 // Bind failed against this map: it is not an answer for this build. Drop it and
 // fall back to the live resolver, which is the path that always works.
-- (void)rejectSchema:(NSString *)why {
-    NSString *p = [DocumentsDir() stringByAppendingPathComponent:@"ff_native.json"];
-    [[NSFileManager defaultManager] removeItemAtPath:p error:nil];
+- (void)rejectSchema {
+    NSString *p = [DocumentsDir() stringByAppendingPathComponent:FFSecretText(FFSecretSchemaFile)];
+    unlink(p.fileSystemRepresentation);   // see reloadSchema: removeItemAtPath would stat first
     @synchronized (self) {
         _schema = @{};
         _schemaSource = @"none";
     }
-    FFLOG(@"schema rejected (%@) - deleted %@", why, p);
+    FFLOG(@"schema rejected - deleted %@", p);
 }
 
 - (NSDictionary *)loadJSON:(NSString *)name dir:(NSString *)dir {
     NSString *path = nil;
     if (dir) path = [dir stringByAppendingPathComponent:[name stringByAppendingString:@".json"]];
-    if (!path || ![[NSFileManager defaultManager] fileExistsAtPath:path]) {
+    NSData *d = path ? [USIntegrity dataAtPath:path] : nil;
+    if (!d) {
         path = [[NSBundle mainBundle] pathForResource:name ofType:@"json"];
+        d = path ? [USIntegrity dataAtPath:path] : nil;
     }
-    if (!path) return nil;
-    NSData *d = [NSData dataWithContentsOfFile:path];
     if (!d) return nil;
     id o = [NSJSONSerialization JSONObjectWithData:d options:0 error:nil];
     return [o isKindOfClass:NSDictionary.class] ? o : nil;

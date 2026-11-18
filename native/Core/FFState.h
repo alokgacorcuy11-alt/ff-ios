@@ -55,7 +55,7 @@ FOUNDATION_EXPORT BOOL FFSchemaUsable(NSDictionary *s);
 - (NSString *)schemaSource;
 
 // Delete a map that failed to bind, so it cannot poison the next launch.
-- (void)rejectSchema:(NSString *)why;
+- (void)rejectSchema;
 
 // remote control: poll the proxy panel so toggles made in the WebView menu
 // (or on the laptop) apply here without relaunching the game

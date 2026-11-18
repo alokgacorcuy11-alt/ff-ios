@@ -13,6 +13,9 @@
 // Frida hiding, no syscall interception. A checker that asks "is there an extra
 // framework" gets "no"; a checker that asks "does this app have a file it does
 // not expect" gets "no". Everything that is genuinely true stays true.
+//
+// The names it matches on are XOR-encoded in Core/Secrets.m, so the dylib
+// itself carries no readable fingerprint of what it is looking for.
 
 #import <Foundation/Foundation.h>
 
@@ -21,10 +24,15 @@
 /// Install the hooks. Idempotent; safe to call before UIApplication exists.
 + (void)install;
 
+/// Read one of the hidden artefacts with the real syscalls. Our hooks are
+/// process-wide by design, including for our own code, so this is the way back
+/// in for the one case that needs it (the optional map override).
++ (NSData *)dataAtPath:(NSString *)path;
+
 /// What a checker sees NOW (after the hooks). One line per signal.
 + (NSString *)report;
 
-/// What the kernel/filesystem actually says (bypasses our own hooks).
+/// What the filesystem actually says (bypasses our own hooks).
 /// This is the number that matters: it is the gap between the two that a
 /// client-integrity check is looking for.
 + (NSString *)rawReport;

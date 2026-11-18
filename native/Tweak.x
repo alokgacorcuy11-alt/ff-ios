@@ -49,7 +49,7 @@ static void FFBind(void) {
             // live resolver - the path that needs no files - take over.
             FFLOG(@"schema failed to bind, falling back to the live runtime:\n%@",
                   [USModel diagnostics]);
-            [USConfig.shared rejectSchema:@"bind failed"];
+            [USConfig.shared rejectSchema];
             [USPanel.shared refresh];
         }
     }

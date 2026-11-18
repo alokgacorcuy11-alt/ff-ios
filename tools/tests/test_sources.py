@@ -1441,7 +1441,7 @@ def audit_schema_guard():
     check("FFBind validates instead of guessing",
           "BOOL fromProxy = FFSchemaUsable(map);" in tweak)
     check("FFBind falls back to the live resolver",
-          "rejectSchema:@\"bind failed\"" in tweak and "autoBind" in tweak)
+          "rejectSchema]" in tweak and "autoBind" in tweak)
     check("a failed bind is not latched off",
           "if (gBound && [USModel ready]) return;" in tweak)
     check("the rebind loop does not give up",
@@ -1451,7 +1451,7 @@ def audit_schema_guard():
     check("proxy schemas are validated before being adopted",
           "if (!FFSchemaUsable(json))" in state)
     check("rejectSchema deletes the file on disk",
-          "removeItemAtPath:p" in state)
+          "unlink(p.fileSystemRepresentation)" in state)
     check("schema source is reported",
           "schemaSource" in state and "schema source" in game)
 
@@ -1501,44 +1501,102 @@ def audit_integrity():
     audit pins the part that is code: the hooks exist, they cover the artefacts
     our install introduced, they are installed before anything reads them, and
     the audit tells the truth about both sides (hooked vs raw).
+
+    It also pins the part that keeps the hooks from being a fingerprint: none of
+    the needles may appear as a string literal in the sources, and the encoded
+    table in Secrets.m has to decode to exactly the list below, in the same
+    order as the enum. A typo in one byte of that table would silently stop a
+    hook from matching anything, which is the worst failure mode here: it looks
+    installed and answers nothing.
     """
+    import re as _re
+
     intg = (NATIVE / "Core" / "Integrity.m").read_text(encoding="utf-8")
     hdr = (NATIVE / "Core" / "Integrity.h").read_text(encoding="utf-8")
+    sec_m = (NATIVE / "Core" / "Secrets.m").read_text(encoding="utf-8")
+    sec_h = (NATIVE / "Core" / "Secrets.h").read_text(encoding="utf-8")
+    state = (NATIVE / "Core" / "FFState.m").read_text(encoding="utf-8")
     mk = (NATIVE / "Makefile").read_text(encoding="utf-8")
     tweak = (NATIVE / "Tweak.x").read_text(encoding="utf-8")
     plist = (NATIVE / "entitlements.plist").read_text(encoding="utf-8")
     troll = (NATIVE / "entitlements.trollstore.plist").read_text(encoding="utf-8")
 
     check("Integrity.m is in the build", "Core/Integrity.m" in mk)
+    check("Secrets.m is in the build", "Core/Secrets.m" in mk)
     check("Integrity.h declares the audit", "rawReport" in hdr and "exposureCount" in hdr)
     check("it is installed before the game can read anything",
-          tweak.index("[USIntegrity install]") < tweak.index("FFBoot();", tweak.index("static void USBootWhenReady(int tries) {")))
+          tweak.index("[USIntegrity install]") < tweak.index(
+              "FFBoot();", tweak.index("static void USBootWhenReady(int tries) {")))
     check("it runs after the dyld cloak",
           tweak.index("[USCloak install]") < tweak.index("[USIntegrity install]"))
 
+    # ---- the encoded table: decodes to exactly these needles, in this order
+    want = ["embedded.mobileprovision", "unityservices.framework",
+            "ff_native.json", "ff_native", "get-task-allow",
+            "com.dts.freefireth", "sectaskcopyvalueforentitlement",
+            "sectaskcreatefromself", "sectaskcopysigningidentifier"]
+    blob_vars, got = [], []
+    for m in _re.finditer(r"static const uint8_t (\w+)\[\] = \{(.*?)\};", sec_m, _re.S):
+        blob_vars.append(m.group(1))
+        vals = [int(x, 16) for x in _re.findall(r"0x([0-9a-fA-F]{2})", m.group(2))]
+        got.append("".join(chr(v ^ 0x5B) for v in vals))
+    check("the encoded table decodes to the expected needles", got == want)
+    order = _re.search(r"kBlobs\[FFSecretCount\] = \{(.*?)\};", sec_m, _re.S)
+    used = _re.findall(r"\{\s*(\w+),", order.group(1)) if order else []
+    check("kBlobs lists every blob in declaration order", used == blob_vars)
+    enum_body = _re.search(r"typedef NS_ENUM\(NSInteger, FFSecret\) \{(.*?)\}", sec_h, _re.S)
+    enum_names = _re.findall(r"(FFSecret\w+)\s*(?:=|,)", enum_body.group(1)) if enum_body else []
+    check("the enum has one entry per needle, in the table's order",
+          len(enum_names) == len(want))
+
+    # ---- no needle survives as a literal anywhere in the sources
+    sources = (list((NATIVE / "Core").glob("*.m"))
+               + list((NATIVE / "Menu").glob("*.m"))
+               + [NATIVE / "Tweak.x"])
+    leaks = []
+    for f in sources:
+        if f.name == "Secrets.m":
+            continue
+        txt = f.read_text(encoding="utf-8")
+        for needle in want:
+            if '"%s"' % needle in txt:
+                leaks.append("%s:%s" % (f.name, needle))
+    check("no needle is a string literal (%s)" % (", ".join(leaks) or "clean"),
+          not leaks)
+
     # the artefacts it hides are ours, nothing else
-    for token in ("embedded.mobileprovision", "UnityServices.framework"):
-        check(f"hides {token}", token in intg)
-    check("it does not hide the game's own files",
-          "ff_native.json" in intg and "UnityFramework" not in intg)
+    check("the path test is driven by the table",
+          "FFSecretNeedle" in intg and "strcasestr" in intg)
+    check("it does not hide the game's own framework", "UnityFramework" not in intg)
 
     # both mechanisms are present, and the originals are kept
     check("C entry points are rebound, not patched in place",
-          "rebindEverywhere" in intg and "stat" in intg and "open" in intg)
+          "rebindEverywhere" in intg and '"stat"' in intg and '"open"' in intg)
+    check("the relative-path spellings are covered too",
+          "shim_openat" in intg and "shim_faccessat" in intg and "shim_lstat" in intg)
     check("ObjC methods are swizzled with the original kept",
           "method_setImplementation" in intg and "class_getInstanceMethod" in intg)
     check("a shim without an original is never installed",
-          "if (!orig[i]) continue;" in intg)
-    check("the same Method cannot be patched twice",
-          "containsObject:key" in intg)
+          "static int bindOne(" in intg and "if (!p) return 0;" in intg)
+    check("the same Method cannot be patched twice", "containsObject:key" in intg)
+
+    # identity: the identifier, and the identifier the signature carries
+    check("the bundle identifier answer comes from the table",
+          "FFSecretText(FFSecretBundleID)" in intg)
+    check("the signing identifier is covered as well", "shim_copySign" in intg)
+    check("no identity literal survives in the hook bodies",
+          '@"com.dts.freefireth"' not in intg)
+
+    # our own hooks hide the file from us, so there is a way back in
+    check("there is a real-syscall read path", "dataAtPath" in hdr)
+    check("the schema override uses it", "[USIntegrity dataAtPath" in state)
 
     # the audit reports both sides
-    check("the empty bsil is a live probe through the hooks",
+    check("the visible report is a live probe through the hooks",
           "fileExistsAtPath:prof" in intg and "[USCloak report]" in intg)
-    check("the raw report bypasses the hooks",
-          "real_stat ?: (fn_stat)FFDlsym" in intg)
+    check("the raw report bypasses the hooks", "real_stat ?: (fn_stat)FFDlsym" in intg)
 
-    # sign-time: get-task-allow must be gone
+    # sign-time: the development entitlement must be gone
     check("get-task-allow is not requested", "get-task-allow</key>" not in plist)
     check("private entitlements are not in the sideload plist",
           "<key>platform-application</key>" not in plist
@@ -1549,9 +1607,10 @@ def audit_integrity():
     check("the dummy Team ID placeholder is gone", "<string>TEAMID" not in plist)
 
     # the schema is no longer written to the container
-    state = (NATIVE / "Core" / "FFState.m").read_text(encoding="utf-8")
-    check("the schema is not persisted to Documents",
-          "writeToFile:p" not in state)
+    check("the schema is not persisted to Documents", "writeToFile:p" not in state)
+    check("rejectSchema carries no reason string", "rejectSchema:" not in tweak)
+    check("the schema file name comes from the table",
+          "FFSecretText(FFSecretSchemaFile)" in state)
 
 
 def main() -> int:

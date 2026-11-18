@@ -18,6 +18,7 @@ FFMenu_FILES = Tweak.x \
 	Core/Obf.m \
 	Core/Stealth.m \
 	Core/Rebind.m \
+	Core/Secrets.m \
 	Core/Integrity.m \
 	Menu/FFMenu.m
 

@@ -7,7 +7,14 @@ import zipfile
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 OUT = ROOT / "out"
-DY = pathlib.Path(r"C:\Users\alokg\AppData\Local\Temp\FFMenu-built.dylib")
+# `dist/FFMenu.dylib` is the CI artefact (git checkout origin/build -- dist/).
+# The Temp path is the old hand-copy location; kept as a fallback so the tool
+# still works when someone stages the dylib there.
+_CANDIDATES = [
+    ROOT / "dist" / "FFMenu.dylib",
+    pathlib.Path(r"C:\Users\alokg\AppData\Local\Temp\FFMenu-built.dylib"),
+]
+DY = next((p for p in _CANDIDATES if p.exists()), _CANDIDATES[0])
 
 
 def sha(p: pathlib.Path) -> str:

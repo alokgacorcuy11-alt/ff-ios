@@ -34,7 +34,7 @@ FFMenu_CFLAGS = -fobjc-arc -O2 -fvisibility=hidden -Wall \
 # make RELEASE=1  ->  every log format string is compiled out, so `strings` on
 #                     the dylib contains no messages at all. See Core/Obf.h.
 ifeq ($(RELEASE),1)
-	FFMenu_CFLAGS += -DFF_QUIET_BUILD
+	FFMenu_CFLAGS += -DFF_QUIET_BUILD -g0
 endif
 
 FFMenu_FRAMEWORKS = Foundation UIKit CoreGraphics QuartzCore

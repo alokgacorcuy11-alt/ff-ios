@@ -77,6 +77,88 @@ value is - `embedded.mobileprovision` is the cheapest and the loudest.
 
 ---
 
+### 0.2 What `Core/Integrity.m` does about the reachable rows
+
+The table in 0.1 splits in two, and only one half is code:
+
+| row | decided by | reachable from inside the process |
+|---|---|---|
+| signature bytes | the kernel, from the code signature | **no** |
+| Team ID | the code signature | **no** |
+| profile present in the bundle | the file system | yes - `stat`, `lstat`, `access`, `faccessat`, `open`, `openat`, `NSFileManager` |
+| profile **contents** | the file system | yes, same calls - but see the limit below |
+| `get-task-allow` | the signature, read back through an API | yes - `SecTaskCopyValueForEntitlement` |
+| signing identifier | the signature, read back through an API | yes - `SecTaskCopySigningIdentifier` |
+| `CFBundleIdentifier` | Info.plist, read back through `NSBundle` | yes |
+| `Frameworks/` contents | a directory listing | yes |
+| `LC_LOAD_DYLIB` | the on-disk Mach-O | **no** |
+| App Attest | Apple's servers | **no** |
+
+What the layer does, row by row:
+
+- **files.** `stat` / `lstat` (both the plain and the `$INODE64` spelling
+  Darwin actually calls), `access`, `faccessat`, `open`, `openat`,
+  `-[NSFileManager fileExistsAtPath:]`, the `:isDirectory:` variant,
+  `contentsOfDirectoryAtPath:error:` and `attributesOfItemAtPath:error:` all
+  answer ENOENT for three names: the provisioning profile, our own framework
+  directory, and the optional map override. A directory listing of
+  `Frameworks/` therefore does not contain us either.
+- **entitlement.** The development entitlement is answered with NULL, which is
+  the API's own way of saying "no such key".
+- **signing identifier.** Answered with the App Store identifier. On a
+  re-signed build this is a *different* lie from the bundle id - the signature
+  literally calls the app
+  `com.alokgacorcuy11.freefire.QM3GS292GJ` - and it is one call to read, so it
+  is covered by the same rule.
+- **bundle id.** `-bundleIdentifier` and the `CFBundleIdentifier` key inside
+  `-infoDictionary` answer with the App Store identifier. Scoped to
+  `[NSBundle mainBundle]`, so every embedded framework still answers with its
+  own.
+
+Mechanics, and why they are not a detection surface of their own:
+
+- The C functions are **not** patched inside libsystem. `USLink` rewrites the
+  symbol-pointer slot in each image that calls through it, so
+  `/usr/lib/libsystem_c.dylib` on disk and in memory is untouched and a hash of
+  it still matches. This is the same machinery that hides the image from dyld
+  (§1.3), reused.
+- The ObjC methods are patched by IMP, because a caller that never goes through
+  the PLT cannot be reached any other way.
+- A shim is only installed when its original resolved first. A shim with no
+  original would answer ENOENT for every path in the process.
+- The names it matches on are **not in the binary**. `Core/Secrets.m` stores
+  them XOR-0x5B and decodes once; `tools/tests/` asserts the encoded table
+  decodes to the exact list and that no needle survives as a string literal in
+  any compiled source. A hiding layer that names what it hides is a bigger
+  fingerprint than the file it hides.
+
+**The limit, stated plainly.** Hiding the profile from `stat` does not change
+the signature, and the Team ID is in the signature. Nothing here can make
+`SecCodeCopySigningInformation` say "Apple Distribution", and nothing here can
+make App Attest succeed for a bundle id Apple does not know. A checker that
+reads the signature instead of the file system - or that asks Apple - still sees
+everything. This layer closes the *cheap* checks (one `fileExistsAtPath`, one
+entitlement read), and those are the ones most likely to run unconditionally at
+launch. It does not turn a re-signed build into a store build, and no code
+inside the process can.
+
+**How to see it.** Menu -> BIND STATE appends two reports:
+
+```
+visible (what a checker sees)      raw (what is really there)
+  profile     : hidden               profile     : PRESENT
+  debuggable  : hidden               debuggable  : absent|true|false
+  bundle id   : com.dts.freefireth   bundle id   : com.alokgacorcuy11.freefire.QM3GS292GJ
+  hooks       : N slot(s), M method(s)
+```
+
+The right-hand column is the number that matters: it is measured through the
+resolved real functions, not through our own hooks. If the two columns agree on
+`profile` or `debuggable`, a hook did not install - and the count in
+`+exposureCount` is the honest score, not zero.
+
+---
+
 ## 1. Client-side layers, one by one
 
 ### 1.1 Certificate / Team ID check
@@ -350,6 +432,11 @@ make -C native RELEASE=1
 strings -a native/.theos/obj/arm64/FFMenu.dylib | grep -Ei 'ffmenu|cheat|aimbot|bypass'   # expect nothing
 strings -a native/.theos/obj/arm64/FFMenu.dylib | grep -E 'esp\.|aim\.|debug\.|ui\.'      # expect nothing
 nm -u  native/.theos/obj/arm64/FFMenu.dylib                                                 # system only
+
+# 3b. and it does not name what it hides either (Core/Secrets.m)
+strings -a native/.theos/obj/arm64/FFMenu.dylib | grep -Ei 'mobileprovision|get-task-allow|freefireth|ff_native'  # expect nothing
+# 'UnityServices' *will* appear once: it is the LC_ID_DYLIB install name, which
+# has to match where the image is placed. That is camouflage, not a leak.
 
 # 4. it knows where the symbol slots are
 python tools/got_scan.py in.ipa

@@ -218,25 +218,6 @@ jobs:
           echo "dylib=$D" >> "$GITHUB_OUTPUT"
           ls -la "$D"
 
-      - name: strip - no paths, no locals, no debug
-        run: |
-          set -euo pipefail
-          D="${{ steps.find.outputs.dylib }}"
-          before=$(wc -c < "$D")
-          # -x drops local symbols, which is where the object-file path and every
-          # private function/global name live (stabs, N_OSO, kFFAim*, gW2S*);
-          # -S drops debug sections. Neither touches exports or the ObjC
-          # metadata the runtime actually needs.
-          strip -x -S "$D"
-          echo "stripped: $before -> $(wc -c < "$D") bytes"
-          # A build path is a fingerprint even a trivial scan can read:
-          # /Users/runner/work/ff-ios/... names the project.
-          if strings -a "$D" | grep -q '/Users/\|ff-ios'; then
-            echo "::error::build path survived the strip"
-            strings -a "$D" | grep '/Users/\|ff-ios' | head -5
-            exit 1
-          fi
-
       - name: platform check
         run: |
           set -euo pipefail
@@ -263,6 +244,29 @@ jobs:
           # launch and killed the app before its first frame, so the binary is
           # checked here, not just the source.
           python3 tools/dylib_info.py "$D"
+
+      - name: strip - no paths, no locals, no debug
+        run: |
+          set -euo pipefail
+          D="${{ steps.find.outputs.dylib }}"
+          # Deliberately after the load check: dylib_info.py greps the symbol
+          # table for +[IL2CPP loadAPI] and -[USConfig load], and those are
+          # exactly the local names this step removes. The audit looks at what
+          # the compiler produced; the strip decides what ships.
+          before=$(wc -c < "$D")
+          # -x drops local symbols, which is where the object-file path and every
+          # private function/global name live (stabs, N_OSO, kFFAim*, gW2S*);
+          # -S drops debug sections. Neither touches exports or the ObjC
+          # metadata the runtime actually needs.
+          strip -x -S "$D" 2>/dev/null || strip -x "$D"
+          echo "stripped: $before -> $(wc -c < "$D") bytes"
+          # A build path is a fingerprint even a trivial scan can read:
+          # /Users/runner/work/ff-ios/... names the project.
+          if strings -a "$D" | grep -q '/Users/\|ff-ios'; then
+            echo "::error::build path survived the strip"
+            strings -a "$D" | grep '/Users/\|ff-ios' | head -5
+            exit 1
+          fi
 
       - name: does it advertise itself?
         run: |

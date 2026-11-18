@@ -52,6 +52,29 @@ def symbol_names(d, off):
     return out
 
 
+def objc_methnames(d, off):
+    """Selector strings from __TEXT,__objc_methname.
+
+    These survive `strip`, unlike the symbol table: a stripped dylib still has
+    to carry every selector it uses. That makes this the only check that works
+    on the artifact we actually ship (dist/ is stripped in CI).
+    """
+    for cmd, _, p in load_commands(d, off):
+        if cmd != 0x19:                      # LC_SEGMENT_64
+            continue
+        nsects = struct.unpack_from("<I", d, p + 64)[0]
+        s = p + 72
+        for _ in range(nsects):
+            sectname = d[s:s + 16].rstrip(b"\x00").decode("utf-8", "replace")
+            segname = d[s + 16:s + 32].rstrip(b"\x00").decode("utf-8", "replace")
+            addr, size, offset = struct.unpack_from("<QQI", d, s + 32)
+            if segname == "__TEXT" and sectname == "__objc_methname":
+                blob = d[offset:offset + size]
+                return [x.decode("utf-8", "replace") for x in blob.split(b"\x00") if x]
+            s += 80
+    return []
+
+
 def main() -> int:
     if len(sys.argv) < 2:
         print(__doc__)
@@ -71,28 +94,51 @@ def main() -> int:
     print(f"filetype: {ft} {FILETYPES.get(ft, '?')}")
 
     names = symbol_names(d, 0)
+    methods = objc_methnames(d, 0)
     print(f"symbols : {len(names)} named addresses")
+    print(f"objc    : {len(methods)} selectors")
 
     # The one exception: FFState's key decode. It runs at load_images too, but it
     # only XORs a byte blob and splits a string - no dyld call, no UIKit, nothing
     # that needs an initialised process. Everything else named `load` is a trap.
     allowed = {"+[USConfig load]"}
-    all_load = sorted({n for n in names if n.endswith(" load]")})
-    fatal = [n for n in all_load if n not in allowed]
-    resolver = sorted({n for n in names if "IL2CPP loadAPI" in n})
-    print(f"resolver: {', '.join(resolver) if resolver else 'MISSING'}")
-    for n in all_load:
-        print(f"  load hook: {n}" + ("  (key decode, allowed)" if n in allowed else ""))
-
     ok = True
-    if fatal:
-        print(f"  ** FATAL: a method named `load` is a launch hook: {fatal}")
-        ok = False
-    elif not all_load:
-        print("  no method is named `load` (no load_images hook at all)")
-    if not resolver:
-        print("  ** FATAL: no +[IL2CPP loadAPI] - the resolver has no entry point")
-        ok = False
+    if names:
+        # build output: class + method symbols are intact
+        all_load = sorted({n for n in names if n.endswith(" load]")})
+        fatal = [n for n in all_load if n not in allowed]
+        resolver = sorted({n for n in names if "IL2CPP loadAPI" in n})
+        print(f"resolver: {', '.join(resolver) if resolver else 'MISSING'}")
+        for n in all_load:
+            print(f"  load hook: {n}" + ("  (key decode, allowed)" if n in allowed else ""))
+        if fatal:
+            print(f"  ** FATAL: a method named `load` is a launch hook: {fatal}")
+            ok = False
+        elif not all_load:
+            print("  no method is named `load` (no load_images hook at all)")
+        if not resolver:
+            print("  ** FATAL: no +[IL2CPP loadAPI] - the resolver has no entry point")
+            ok = False
+    else:
+        # stripped artifact (what dist/ ships): the symbol table is gone by
+        # design, so the selectors are the evidence that is left.
+        #
+        # A bare `load` selector here is a *reference*, not proof of a method:
+        # __objc_methname keeps every selector the image mentions, including ones
+        # it only sends to a framework class. The authoritative check is the
+        # symbol table before the strip (the CI step above), where a class method
+        # appears as `+[Class load]` / `-[Class load]`.
+        print("  stripped build - no symbol table, falling back to selectors")
+        loady = sorted(m for m in methods if m == "load" or m.startswith("load"))
+        resolver = [m for m in methods if m == "loadAPI"]
+        print(f"resolver: {', '.join(resolver) if resolver else 'MISSING'}")
+        print(f"  load-prefixed selectors: {', '.join(loady) if loady else 'none'}")
+        if "load" in methods:
+            print("  note: a bare `load` selector is referenced; the pre-strip symbol")
+            print("        check is what decides whether a method implements it")
+        if not resolver:
+            print("  ** FATAL: no loadAPI selector - the resolver has no entry point")
+            ok = False
     print("RESULT  :", "OK" if ok else "REJECTED")
     return 0 if ok else 1
 

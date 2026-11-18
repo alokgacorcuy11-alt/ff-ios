@@ -103,11 +103,18 @@ def main() -> int:
     # that needs an initialised process. Everything else named `load` is a trap.
     allowed = {"+[USConfig load]"}
     ok = True
-    if names:
-        # build output: class + method symbols are intact
-        all_load = sorted({n for n in names if n.endswith(" load]")})
+    sym_resolver = sorted({n for n in names if "IL2CPP loadAPI" in n})
+    sym_load = sorted({n for n in names if n.endswith(" load]")})
+    sel_resolver = [m for m in methods if m == "loadAPI"]
+
+    # A build output keeps our class/method symbols; a stripped one does not, and
+    # `strip -x` can leave a single unrelated entry behind. So the mode is
+    # decided by whether the names we care about are still there, not by the
+    # count.
+    if sym_resolver or sym_load or "loadAPI" not in methods:
+        all_load = sym_load
         fatal = [n for n in all_load if n not in allowed]
-        resolver = sorted({n for n in names if "IL2CPP loadAPI" in n})
+        resolver = sym_resolver
         print(f"resolver: {', '.join(resolver) if resolver else 'MISSING'}")
         for n in all_load:
             print(f"  load hook: {n}" + ("  (key decode, allowed)" if n in allowed else ""))
@@ -129,14 +136,13 @@ def main() -> int:
         # symbol table before the strip (the CI step above), where a class method
         # appears as `+[Class load]` / `-[Class load]`.
         print("  stripped build - no symbol table, falling back to selectors")
-        loady = sorted(m for m in methods if m == "load" or m.startswith("load"))
-        resolver = [m for m in methods if m == "loadAPI"]
-        print(f"resolver: {', '.join(resolver) if resolver else 'MISSING'}")
+        loady = sorted(m for m in methods if m.startswith("load"))
+        print(f"resolver: {', '.join(sel_resolver)}")
         print(f"  load-prefixed selectors: {', '.join(loady) if loady else 'none'}")
         if "load" in methods:
             print("  note: a bare `load` selector is referenced; the pre-strip symbol")
             print("        check is what decides whether a method implements it")
-        if not resolver:
+        if not sel_resolver:
             print("  ** FATAL: no loadAPI selector - the resolver has no entry point")
             ok = False
     print("RESULT  :", "OK" if ok else "REJECTED")

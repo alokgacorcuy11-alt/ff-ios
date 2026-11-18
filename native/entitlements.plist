@@ -2,31 +2,35 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-	<!-- iOS will not load a dylib from an app that is not allowed to
-	     debug itself. get-task-allow is what makes the injected dylib
-	     actually get mapped by dyld on a re-signed build. -->
-	<key>get-task-allow</key>
-	<true/>
+	<!-- Minimal. Sign with -entitlements entitlements.plist, or let the signer
+	     derive them from the provisioning profile.
 
-	<!-- keep the app's own identity, otherwise keychain + some SDKs break -->
-	<key>application-identifier</key>
-	<string>TEAMID.com.dts.freefireth</string>
-	<key>com.apple.developer.team-identifier</key>
-	<string>TEAMID</string>
-	<key>keychain-access-groups</key>
-	<array>
-		<string>TEAMID.com.dts.freefireth</string>
-	</array>
+	     What is deliberately NOT here, and why:
 
-	<!-- outbound HTTP to the proxy panel -->
+	     get-task-allow
+	       This used to be <true/>, with a comment claiming dyld needs it to map
+	       the injected dylib. That is false: get-task-allow only permits
+	       debugging (ptrace / task_for_pid on our own task). An LC_LOAD_DYLIB is
+	       resolved by dyld whether or not the app is debuggable.
+	       Meanwhile it is the single cheapest integrity signal a game can read
+	       about itself: one call to SecTaskCopyValueForEntitlement and the app
+	       knows it was signed for development. Removed at signing time, and
+	       Core/Integrity.m also stops answering true at runtime for builds that
+	       still carry it.
+
+	     application-identifier / keychain-access-groups / team-identifier
+	       These must match the certificate's Team ID and the bundle id the
+	       profile actually allows. A hardcoded TEAMID placeholder here is worse
+	       than absent: it either breaks signing or produces a mismatched
+	       identity. Signers derive all three from the profile.
+
+	     com.apple.private.security.no-container / platform-application
+	       Private, jailbreak-class entitlements. They cannot be signed into a
+	       normal sideload, and asking for them makes the build look worse, not
+	       better. They live in entitlements.trollstore.plist, which is only for
+	       an install that can actually grant them. -->
+
 	<key>com.apple.security.network.client</key>
-	<true/>
-
-	<!-- only needed if you also install as a TrollStore app:
-	     lets a loader write into the target's container -->
-	<key>com.apple.private.security.no-container</key>
-	<true/>
-	<key>platform-application</key>
 	<true/>
 </dict>
 </plist>

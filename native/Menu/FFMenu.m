@@ -4,6 +4,7 @@
 #import "FFState.h"
 #import "Game.h"
 #import "ESP.h"
+#import "Integrity.h"
 #import "Compat.h"
 #import "Stealth.h"
 #import "Inject.h"
@@ -518,8 +519,9 @@ typedef NS_ENUM(NSInteger, RowKind) { RowToggle, RowRange, RowSegment, RowInfo }
 }
 
 - (void)showDiag {
-    NSString *d = [NSString stringWithFormat:@"%@\n%@",
-                   [USModel diagnostics], [USCloak report]];
+    NSString *d = [NSString stringWithFormat:@"%@\n%@\n%@\n%@",
+                   [USModel diagnostics], [USCloak report],
+                   [USIntegrity report], [USIntegrity rawReport]];
     UIAlertController *a = [UIAlertController alertControllerWithTitle:@"BIND STATE"
                                                               message:d
                                                        preferredStyle:UIAlertControllerStyleAlert];

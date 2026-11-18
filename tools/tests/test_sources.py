@@ -1492,6 +1492,68 @@ def audit_camera_source():
           'gCamTrSource = @"Camera.main.transform"' in game)
 
 
+def audit_integrity():
+    """The runtime half of the client-integrity answer.
+
+    ANTIDETECT 0.1 states the verdict: the ban is decided at launch on the app
+    itself, so a feature that never fires cannot save the account. Half of those
+    signals are fixed by the signature; the other half are API answers. This
+    audit pins the part that is code: the hooks exist, they cover the artefacts
+    our install introduced, they are installed before anything reads them, and
+    the audit tells the truth about both sides (hooked vs raw).
+    """
+    intg = (NATIVE / "Core" / "Integrity.m").read_text(encoding="utf-8")
+    hdr = (NATIVE / "Core" / "Integrity.h").read_text(encoding="utf-8")
+    mk = (NATIVE / "Makefile").read_text(encoding="utf-8")
+    tweak = (NATIVE / "Tweak.x").read_text(encoding="utf-8")
+    plist = (NATIVE / "entitlements.plist").read_text(encoding="utf-8")
+    troll = (NATIVE / "entitlements.trollstore.plist").read_text(encoding="utf-8")
+
+    check("Integrity.m is in the build", "Core/Integrity.m" in mk)
+    check("Integrity.h declares the audit", "rawReport" in hdr and "exposureCount" in hdr)
+    check("it is installed before the game can read anything",
+          tweak.index("[USIntegrity install]") < tweak.index("FFBoot();", tweak.index("static void USBootWhenReady(int tries) {")))
+    check("it runs after the dyld cloak",
+          tweak.index("[USCloak install]") < tweak.index("[USIntegrity install]"))
+
+    # the artefacts it hides are ours, nothing else
+    for token in ("embedded.mobileprovision", "UnityServices.framework"):
+        check(f"hides {token}", token in intg)
+    check("it does not hide the game's own files",
+          "ff_native.json" in intg and "UnityFramework" not in intg)
+
+    # both mechanisms are present, and the originals are kept
+    check("C entry points are rebound, not patched in place",
+          "rebindEverywhere" in intg and "stat" in intg and "open" in intg)
+    check("ObjC methods are swizzled with the original kept",
+          "method_setImplementation" in intg and "class_getInstanceMethod" in intg)
+    check("a shim without an original is never installed",
+          "if (!orig[i]) continue;" in intg)
+    check("the same Method cannot be patched twice",
+          "containsObject:key" in intg)
+
+    # the audit reports both sides
+    check("the empty bsil is a live probe through the hooks",
+          "fileExistsAtPath:prof" in intg and "[USCloak report]" in intg)
+    check("the raw report bypasses the hooks",
+          "real_stat ?: (fn_stat)FFDlsym" in intg)
+
+    # sign-time: get-task-allow must be gone
+    check("get-task-allow is not requested", "get-task-allow</key>" not in plist)
+    check("private entitlements are not in the sideload plist",
+          "<key>platform-application</key>" not in plist
+          and "<key>com.apple.private.security.no-container</key>" not in plist)
+    check("they live in the TrollStore plist instead",
+          "<key>platform-application</key>" in troll
+          and "<key>com.apple.private.security.no-container</key>" in troll)
+    check("the dummy Team ID placeholder is gone", "<string>TEAMID" not in plist)
+
+    # the schema is no longer written to the container
+    state = (NATIVE / "Core" / "FFState.m").read_text(encoding="utf-8")
+    check("the schema is not persisted to Documents",
+          "writeToFile:p" not in state)
+
+
 def main() -> int:
     print("=" * 66)
     print(" source audit - native dylib + menu assets")
@@ -1545,6 +1607,8 @@ def main() -> int:
     audit_schema_guard()
     print()
     audit_camera_source()
+    print()
+    audit_integrity()
     print()
     if FAIL:
         print(f"{FAIL} check(s) FAILED")

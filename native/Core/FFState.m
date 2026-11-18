@@ -352,8 +352,10 @@ static NSString *DocumentsDir(void) {
                 self->_schema = json;
                 self->_schemaSource = @"proxy";
             }
-            NSString *p = [DocumentsDir() stringByAppendingPathComponent:@"ff_native.json"];
-            [[NSJSONSerialization dataWithJSONObject:json options:0 error:nil] writeToFile:p atomically:YES];
+            // Not written to disk. The map is an override that the proxy can
+            // re-serve at any time, and a 1.4 KB JSON full of FF class names in
+            // Documents is an artefact a client scan can read. Keeping it in
+            // memory removes the artefact and changes nothing else.
             FFLOG(@"schema refreshed from proxy");
         }];
     }

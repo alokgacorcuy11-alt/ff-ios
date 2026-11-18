@@ -14,6 +14,7 @@
 #import "Core/ESP.h"
 #import "Core/Compat.h"
 #import "Core/Stealth.h"
+#import "Core/Integrity.h"
 #import "Core/Inject.h"
 #import "Menu/FFMenu.h"
 #import "Obf.h"
@@ -156,6 +157,10 @@ static void USBootWhenReady(int tries) {
     // verbosity first, so the lines below respect it. Silent unless asked.
     FFSetVerbose([USConfig.shared isOn:kFFVerbose]);
     USCloakTier tier = [USCloak install];   // stealth first, before anything
+    // Then the client-integrity answers: a checker that asks what this app is
+    // gets the App Store answer for the artefacts that only exist because the
+    // build was re-signed. See Core/Integrity.m and ANTIDETECT 0.1.
+    [USIntegrity install];
     FFLOG(@"loaded (pid %d) %@", getpid(), [USCloak report]);
     (void)tier;
 

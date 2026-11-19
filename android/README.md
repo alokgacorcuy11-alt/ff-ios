@@ -652,6 +652,55 @@ game can find it. It cannot find a file that does not exist, a hash that is
 different for every user, or a package it has never seen - which is what this
 layer buys.
 
+## 8e. The panel - settings without a laptop
+
+`Panel.java`. A floating window over the game, one row per setting, and every
+row pushes the whole config down the feed channel the moment it changes.
+
+```
+┌─────────────────────────┐
+│  ≡  PANEL     AIM  ESP  │   <- drag here; tap to hide
+│  ESP                    │
+│   [x] BOX               │
+│   [x] LINE              │
+│   [ ] SKELETON          │
+│   MAX DIST: 200  −   +  │
+│  AIM                    │
+│   [ ] AIMBOT            │
+│   BONE: CHEST           │   <- cycles head/neck/chest/body
+│   FOV SIZE: 90  −  +    │
+│  feed: connected        │   <- tap to resend
+│  HIDE PANEL             │
+└─────────────────────────┘
+```
+
+It needs `SYSTEM_ALERT_WINDOW`, which the manifest already asks for; the
+`PANEL` button opens the settings page if it has not been granted.
+
+The whole thing is a table over `Config`, which is the same object the laptop
+writes to. So there is one vocabulary, not two:
+
+```
+panel row  ->  cfg.aimFov = 95        ->  cfg.toJson() -> feed channel -> module
+laptop     ->  --set aim_fov=95       ->  udp packet   -> cfg.apply()  -> module
+```
+
+`apply()` and `toJson()` have to stay in step or a toggle silently does
+nothing, so `tools/tests/test_java.py` reads both methods out of the source and
+checks the key sets: everything `toJson()` writes must be something `apply()`
+reads, and the only keys allowed to be one-directional are the input-only ones
+(`esp_color`, `reply`, `watch` and the watch entry fields). Adding a setting to
+one side and forgetting the other fails the suite.
+
+Two hazards worth knowing before this is used in anger:
+
+- `PANEL` does not depend on the feed. With the channel down the rows still
+  change `Config`; the module just never hears about it. The status row says
+  `feed: not connected` for that reason - tap it to resend once the client is up.
+- the row list is rebuilt on every change, which is fine for twenty rows and
+  would not be for two hundred. If it ever grows, keep the views and update the
+  labels instead.
+
 ## 9. Files
 
 ```
@@ -669,6 +718,7 @@ android/
 │        ├─ assets/memd          (built, not committed)
 │        └─ java/com/alokg/ffmenu/
 │           ├─ MainActivity.java  the stage-1 UI and the connect sequence
+│           ├─ Panel.java         floating settings menu over the game
 │           ├─ FeedService.java    foreground loopback feed: deliver, then push
 │           ├─ feed/FeedFormat.java   container format + the client-side fetch
 │           ├─ feed/FeedServer.java   delivers once, keeps the socket

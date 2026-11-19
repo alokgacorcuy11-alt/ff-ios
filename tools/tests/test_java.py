@@ -15,6 +15,7 @@ Skipped with a clear message when javac is not installed.
 
 from __future__ import annotations
 
+import re
 import shutil
 import subprocess
 import sys
@@ -29,9 +30,10 @@ SOURCES = [
     "com/alokg/ffmenu/Config.java",
     "com/alokg/ffmenu/LanConfig.java",
     "com/alokg/ffmenu/MainActivity.java",
+    "com/alokg/ffmenu/FeedService.java",
+    "com/alokg/ffmenu/Panel.java",
     "com/alokg/ffmenu/MemClient.java",
     "com/alokg/ffmenu/Root.java",
-    "com/alokg/ffmenu/FeedService.java",
     "com/alokg/ffmenu/feed/FeedFormat.java",
     "com/alokg/ffmenu/feed/FeedServer.java",
     "com/alokg/ffmenu/feed/FeedChannel.java",
@@ -44,14 +46,58 @@ STUBS = {
 package android.content;
 public class Context {
     public static final String NOTIFICATION_SERVICE = "notification";
+    public static final String WINDOW_SERVICE = "window";
     public Object getSystemService(String name) { return null; }
     public android.content.res.AssetManager getAssets() { return null; }
+}
+""",
+    "android/provider/Settings.java": """
+package android.provider;
+public final class Settings {
+    public static final String ACTION_MANAGE_OVERLAY_PERMISSION =
+            "android.settings.action.MANAGE_OVERLAY_PERMISSION";
+    public static boolean canDrawOverlays(android.content.Context c) { return true; }
+}
+""",
+    "android/graphics/PixelFormat.java": """
+package android.graphics;
+public class PixelFormat { public static final int TRANSLUCENT = -3; }
+""",
+    "android/view/MotionEvent.java": """
+package android.view;
+public class MotionEvent {
+    public static final int ACTION_DOWN = 0;
+    public static final int ACTION_UP = 1;
+    public static final int ACTION_MOVE = 2;
+    public int getAction() { return 0; }
+    public float getRawX() { return 0f; }
+    public float getRawY() { return 0f; }
+}
+""",
+    "android/view/WindowManager.java": """
+package android.view;
+public interface WindowManager {
+    void addView(android.view.View v, LayoutParams p);
+    void updateViewLayout(android.view.View v, LayoutParams p);
+    void removeView(android.view.View v);
+    class LayoutParams {
+        public static final int WRAP_CONTENT = -2;
+        public static final int MATCH_PARENT = -1;
+        public static final int TYPE_APPLICATION_OVERLAY = 2038;
+        public static final int FLAG_NOT_FOCUSABLE = 8;
+        public static final int FLAG_LAYOUT_NO_LIMITS = 512;
+        public int gravity;
+        public int x;
+        public int y;
+        public LayoutParams(int w, int h, int type, int flags, int format) {}
+    }
 }
 """,
     "android/content/Intent.java": """
 package android.content;
 public class Intent {
     public Intent() {}
+    public Intent(String action) {}
     public Intent(Context c, Class<?> cls) {}
 }
 """,
@@ -114,6 +160,7 @@ public class Activity extends android.content.Context {
     protected void onDestroy() {}
     public void setContentView(android.view.View v) {}
     public android.content.ComponentName startService(android.content.Intent i) { return null; }
+    public void startActivity(android.content.Intent i) {}
     public boolean stopService(android.content.Intent i) { return true; }
     public android.content.pm.ApplicationInfo getApplicationInfo() { return null; }
     public java.io.File getFilesDir() { return null; }
@@ -162,15 +209,22 @@ public class View {
     public void setBackgroundColor(int c) {}
     public void setPadding(int a, int b, int c, int d) {}
     public void setEnabled(boolean e) {}
+    public void setVisibility(int v) {}
     public void setOnClickListener(OnClickListener l) {}
+    public void setOnTouchListener(OnTouchListener l) {}
     public int getHeight() { return 0; }
     public void scrollTo(int x, int y) {}
     public interface OnClickListener { void onClick(View v); }
+    public interface OnTouchListener { boolean onTouch(View v, android.view.MotionEvent e); }
 }
 """,
     "android/view/Gravity.java": """
 package android.view;
-public class Gravity { public static final int CENTER_VERTICAL = 16; }
+public class Gravity {
+    public static final int CENTER_VERTICAL = 16;
+    public static final int TOP = 48;
+    public static final int START = 8388611;
+}
 """,
     "android/text/Layout.java": """
 package android.text;
@@ -225,6 +279,7 @@ public class LinearLayout extends android.view.View {
     public void setOrientation(int o) {}
     public void addView(android.view.View v) {}
     public void addView(android.view.View v, LayoutParams p) {}
+    public void removeAllViews() {}
     public void setGravity(int g) {}
     public static class LayoutParams {
         public static final int MATCH_PARENT = -1;
@@ -274,6 +329,8 @@ public class JSONObject {
     public JSONObject put(String k, Object v) throws JSONException { return this; }
     public JSONObject put(String k, int v) throws JSONException { return this; }
     public JSONObject put(String k, long v) throws JSONException { return this; }
+    public JSONObject put(String k, boolean v) throws JSONException { return this; }
+    public JSONObject put(String k, double v) throws JSONException { return this; }
     public String toString() { return ""; }
 }
 """,
@@ -329,6 +386,33 @@ def main() -> int:
         classes = list(out.rglob("*.class"))
         print(f"[{'ok  ' if len(classes) >= len(SOURCES) else 'FAIL'}] "
               f"{len(classes)} class files produced")
+
+    # --- the vocabulary. The panel writes toJson(); the laptop and LanConfig
+    # read apply(). If a key exists in one and not the other, a toggle does
+    # nothing and nobody finds out until someone stares at the game.
+    cfg_text = (SRC / "com/alokg/ffmenu/Config.java").read_text(encoding="utf-8")
+    i_apply = cfg_text.index("int apply(JSONObject o)")
+    i_json = cfg_text.index("JSONObject toJson()")
+    apply_keys = set(re.findall(
+        r'opt(?:Boolean|Int|Double|String|JSONArray|JSONObject)\("([A-Za-z0-9_]+)"',
+        cfg_text[i_apply:i_json]))
+    out_keys = set(re.findall(r'put\("([A-Za-z0-9_]+)"', cfg_text[i_json:]))
+
+    print(f"[{'ok  ' if apply_keys else 'FAIL'}] apply() reads "
+          f"{len(apply_keys)} keys: {', '.join(sorted(apply_keys))}")
+    print(f"[{'ok  ' if out_keys else 'FAIL'}] toJson() writes "
+          f"{len(out_keys)} keys: {', '.join(sorted(out_keys))}")
+
+    missing = sorted(out_keys - apply_keys)
+    print(f"[{'ok  ' if not missing else 'FAIL'}] every key the panel sends is one "
+          f"the packet parser understands" + (f" - missing {missing}" if missing else ""))
+
+    input_only = sorted(apply_keys - out_keys)
+    # addr/label/type are watch-entry fields, esp_color and reply are inputs the
+    # panel never sends; nothing else may be one-directional
+    expected = ["addr", "esp_color", "label", "reply", "type", "watch"]
+    print(f"[{'ok  ' if input_only == expected else 'FAIL'}] apply-only keys are "
+          f"exactly the input-only ones {expected}" + (f" - got {input_only}" if input_only != expected else ""))
 
     shutil.rmtree(tmp, ignore_errors=True)
     print()

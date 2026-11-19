@@ -129,6 +129,11 @@ memory and loads the module from an anonymous `memfd`. No file in the game's
 sandbox, no wireless debugging, no two users sharing a byte. The repack itself
 is the residual tell and cannot be removed.
 
+The settings live in the app, not the laptop. `Panel.java` is a floating window
+over the game - one row per feature, pushed down the feed channel on every
+change - and it writes to the same `Config` the laptop writes to, so there is
+one vocabulary rather than two (§8e).
+
 ## Detection
 
 Nothing of ours is inside the game, so the in-process tells are gone: no dylib,

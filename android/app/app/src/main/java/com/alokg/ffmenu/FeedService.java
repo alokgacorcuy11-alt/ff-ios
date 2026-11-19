@@ -64,6 +64,12 @@ public final class FeedService extends Service {
         return "feed: " + s.state + (port != 0 ? " on 127.0.0.1:" + port : "");
     }
 
+    /** True once a client has taken the container and the channel is live. */
+    public static boolean connected() {
+        FeedService s = live;
+        return s != null && s.channel != null;
+    }
+
     @Override
     public IBinder onBind(Intent intent) {
         return null;

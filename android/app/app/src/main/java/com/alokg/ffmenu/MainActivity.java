@@ -46,7 +46,7 @@ public class MainActivity extends Activity {
     private LanConfig lan;
 
     private TextView out;
-    private Button connect, stop, feed;
+    private Button connect, stop, feed, panel;
     private MemClient client;
     private volatile int gamePid;
     private volatile int daemonPid;
@@ -99,11 +99,26 @@ public class MainActivity extends Activity {
             say(FeedService.status());
         });
 
+        panel = new Button(this);
+        panel.setText("PANEL");
+        panel.setOnClickListener(v -> {
+            if (!android.provider.Settings.canDrawOverlays(this)) {
+                say("panel: izin overlay belum ada - buka izinnya, lalu tekan PANEL lagi");
+                startActivity(new Intent(
+                        android.provider.Settings.ACTION_MANAGE_OVERLAY_PERMISSION));
+                return;
+            }
+            Panel.toggle(this, cfg);
+            say(Panel.visible() ? "panel: tampil" : "panel: disembunyikan");
+        });
+
         row.addView(connect, new LinearLayout.LayoutParams(0,
                 LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
         row.addView(stop, new LinearLayout.LayoutParams(0,
                 LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
         row.addView(feed, new LinearLayout.LayoutParams(0,
+                LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
+        row.addView(panel, new LinearLayout.LayoutParams(0,
                 LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
         root.addView(row);
 

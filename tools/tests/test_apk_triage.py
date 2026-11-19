@@ -184,6 +184,41 @@ def main() -> int:
     check("keyword hit: frida", "frida" in rep["keyword_hits"])
     check("file hash is the file's hash", rep["sha256"] == at.sha256(apk.read_bytes()))
 
+    # --- runtime detection: the first question about any unfamiliar client
+    mono = at.detect_engine([
+        "assets/bin/Data/Managed/Assembly-CSharp.dll",
+        "assets/bin/Data/Managed/mscorlib.dll",
+        "lib/arm64-v8a/libmonobdwgc-2.0.so",
+        "lib/arm64-v8a/libunity.so",
+    ])
+    check("unity-mono detected", mono["engine"] == "unity-mono", mono["engine"])
+    check("mono lists the assemblies",
+          "assets/bin/Data/Managed/Assembly-CSharp.dll" in mono["assemblies"])
+
+    il2 = at.detect_engine([
+        "lib/arm64-v8a/libil2cpp.so",
+        "assets/bin/Data/Managed/Metadata/global-metadata.dat",
+        "lib/arm64-v8a/libunity.so",
+    ])
+    check("unity-il2cpp detected", il2["engine"] == "unity-il2cpp", il2["engine"])
+    check("il2cpp names the metadata", bool(il2["metadata"]))
+    check("il2cpp does not claim to be mono", il2["assemblies"] == [])
+
+    ue = at.detect_engine(["lib/arm64-v8a/libUE4.so", "assets/UE4Game/x"])
+    check("unreal detected", ue["engine"] == "unreal", ue["engine"])
+
+    cc = at.detect_engine(["lib/arm64-v8a/libcocos2djs.so"])
+    check("cocos detected", cc["engine"] == "cocos", cc["engine"])
+
+    check("libunity alone means the backend is unclear",
+          at.detect_engine(["lib/arm64-v8a/libunity.so"])["engine"]
+          == "unity-unknown-backend")
+    check("an APK with none of them is unknown",
+          at.detect_engine(["classes.dex", "lib/arm64-v8a/libfoo.so"])["engine"]
+          == "unknown")
+    check("the fixture reports unknown",
+          rep["runtime"]["engine"] == "unknown", rep["runtime"]["engine"])
+
     # a broken manifest must be reported, not crash the tool
     bad = tmp / "bad.apk"
     with zipfile.ZipFile(bad, "w") as z:

@@ -61,6 +61,59 @@ URL_RE = re.compile(r"https?://[A-Za-z0-9._~:/?#\[\]@!$&'()*+,;=%-]{4,200}")
 ASCII_RE = re.compile(rb"[\x20-\x7e]{6,}")
 
 
+def detect_engine(names: list[str]) -> dict:
+    """Which runtime is in here, from the entry names alone.
+
+    The first question about any unfamiliar client is whether it is Mono or
+    IL2CPP: Mono gives you `Assembly-CSharp.dll` and a field-offset table,
+    IL2CPP gives you `libil2cpp.so` and a metadata file and needs a dumper.
+    Guessing wrong wastes a day.
+    """
+    ev: list[str] = []
+    assemblies = sorted(n for n in names
+                        if n.startswith("assets/bin/Data/Managed/")
+                        and n.lower().endswith((".dll", ".exe")))
+    metadata = sorted(n for n in names if n.lower().endswith("global-metadata.dat"))
+    il2cpp = sorted(n for n in names
+                    if n.startswith("lib/") and "/libil2cpp.so" in n.lower())
+    mono_libs = sorted(n for n in names if n.startswith("lib/")
+                       and ("libmono" in n.lower() or "libmonobdwgc" in n.lower()))
+    unity = sorted(n for n in names if n.startswith("lib/") and "/libunity.so" in n.lower())
+    unreal = sorted(n for n in names if n.startswith("lib/") and "/libue4.so" in n.lower())
+    ue_assets = [n for n in names if n.startswith(("assets/UE4Game", "assets/Engine/"))]
+    cocos = sorted(n for n in names if n.startswith("lib/")
+                   and ("libcocos" in n.lower() or "libcocos2d" in n.lower()))
+
+    if assemblies or mono_libs:
+        engine = "unity-mono"
+        ev += assemblies[:6] + mono_libs[:2]
+    elif il2cpp or metadata:
+        engine = "unity-il2cpp"
+        ev += il2cpp[:2] + metadata[:2]
+    elif unreal or ue_assets:
+        engine = "unreal"
+        ev += unreal[:2] + ue_assets[:2]
+    elif cocos:
+        engine = "cocos"
+        ev += cocos[:2]
+    elif unity:
+        engine = "unity-unknown-backend"
+        ev += unity[:2]
+    else:
+        engine = "unknown"
+        ev += []
+
+    return {
+        "engine": engine,
+        "evidence": ev,
+        "assemblies": assemblies,
+        "il2cpp": il2cpp,
+        "metadata": metadata,
+        "mono_libs": mono_libs,
+        "unity_libs": unity,
+    }
+
+
 class AxmlError(Exception):
     pass
 
@@ -255,6 +308,8 @@ def triage(path: Path, extra_keywords: list[str]) -> dict:
                              "sha256": sha256(blob)})
         rep["native_libs"] = libs
 
+        rep["runtime"] = detect_engine(names)
+
         # --- assets worth a look
         rep["assets"] = [n for n in names
                          if n.startswith("assets/") and not n.endswith("/")][:40]
@@ -325,6 +380,18 @@ def report(rep: dict) -> None:
         print("\npermissions")
         for p in perms:
             print(f"  {p}")
+
+    rt = rep.get("runtime") or {}
+    if rt:
+        print(f"\nruntime   {rt.get('engine')}")
+        for e in rt.get("evidence", [])[:6]:
+            print(f"          {e}")
+        for a in (rt.get("assemblies") or [])[:12]:
+            print(f"  assembly  {a}")
+        for a in (rt.get("il2cpp") or []):
+            print(f"  il2cpp    {a}")
+        for a in (rt.get("metadata") or []):
+            print(f"  metadata  {a}")
 
     if rep.get("native_libs"):
         print("\nnative libs")

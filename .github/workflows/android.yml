@@ -11,6 +11,7 @@ on:
     branches: [main]
     paths:
       - "android/**"
+      - "tools/**"
       - ".github/workflows/android.yml"
   workflow_dispatch:
 

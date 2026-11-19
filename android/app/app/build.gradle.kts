@@ -31,6 +31,10 @@ android {
                 storePassword = findProperty("ksPass") as String?
                 keyAlias = findProperty("ksAlias") as String?
                 keyPassword = findProperty("ksKeyPass") as String?
+                // A v1 blob is what makes the certificate readable with
+                // keytool, which is how IDENTITY.txt records the identity.
+                // v2 is still produced and is what Android verifies first.
+                enableV1Signing = true
             }
         }
     }

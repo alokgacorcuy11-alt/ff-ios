@@ -12,6 +12,7 @@ sequence and the offset workflow.
 android/daemon/memd.c        root service: find pid, module base, read/write, maps
 android/app/                 the app: su, socket, connect sequence, (next) overlay
 android/offsets/example.json what the reader needs, with the ?? gate
+tools/lan_config.py          laptop side: push settings over the hotspot
 ```
 
 ## Why external and not injected
@@ -48,16 +49,55 @@ FFMenu. The screen prints each layer's result, so a failure names itself instead
 of hiding in a stack trace. Expected output and the failure table are in
 `android/README.md` §3.
 
+## Settings from the laptop, over the hotspot
+
+The phone opens `udp/47811` and never answers. The laptop broadcasts one
+HMAC-SHA256-signed packet; the phone applies it on the next frame. No
+connection, no DNS, no TLS, and nothing on the wire that says a device was
+being driven.
+
+```bash
+# phone on the laptop's hotspot, FFMenu open -> "config: listening udp/47811"
+python tools/lan_config.py --set esp_box=true --set aim_smooth=6
+python tools/lan_config.py --watch 0x7c00d01234:u32:health
+```
+
+If nothing happens, the packet left through the wrong interface — a hotspot is
+not the default route. Send it to the hotspot's broadcast instead:
+
+```bash
+python tools/lan_config.py --target 192.168.137.255 --set esp_box=true
+```
+
+`--listen` verifies the channel without a phone. Format, fields, the watch
+list and the troubleshooting table: `android/README.md` §7.
+
+## Nothing left behind
+
+| | |
+|---|---|
+| inside the game | nothing — no image, no thread, no hook |
+| game APK | byte-identical to the store copy; signature and hash checks pass |
+| daemon binary | unlinked after exec — no path on disk |
+| daemon `cmdline` / `comm` | `logd.writer`, uid argument erased in place |
+| socket | abstract namespace — no filesystem node |
+| boot script / module | none — a reboot leaves no daemon and nothing restarts it |
+| phone → laptop traffic | none, unless `--reply` is explicitly enabled |
+
+After `STOP` the only thing on the device is the app you installed. Uninstall
+it and there is nothing to find. Full table: `android/README.md` §6.
+
 ## Detection
 
 Nothing of ours is inside the game, so the in-process tells are gone: no dylib,
 no hook, no image in `maps`, no APK modification. What remains is the rooted
 device, which is decided by how Magisk is set up (DenyList on the game, renamed
-manager), not by this app. Behaviour still decides most bans — smooth ≥ 6, chest,
-FOV ≤ 90, ESP before aim, and nothing in ranked until you know the build is
-stable. Full table: `android/README.md` §6.
+manager, root grant revoked after the daemon starts), not by this app.
+Behaviour still decides most bans — smooth ≥ 6, chest, FOV ≤ 90, ESP before aim,
+and nothing in ranked until you know the build is stable. Full table and the
+Magisk checklist: `android/README.md` §8.
 
-## The laptop sidecar (optional)
+## The old mitmproxy panel (optional)
 
 `ffproxy/`, `menu/`, `rules/`, `run.py` are the mitmproxy panel from the iOS
 build: it serves the feature JSON and the HTML panel over the game's own

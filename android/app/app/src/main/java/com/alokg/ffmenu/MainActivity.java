@@ -41,9 +41,15 @@ public class MainActivity extends Activity {
     private final Handler ui = new Handler(Looper.getMainLooper());
     private final StringBuilder log = new StringBuilder();
 
+    private final Config cfg = new Config();
+    private LanConfig lan;
+
     private TextView out;
     private Button connect, stop;
     private MemClient client;
+    private volatile int gamePid;
+    private volatile int daemonPid;
+    private volatile long lastCfgSay;
 
     @Override
     protected void onCreate(Bundle b) {
@@ -97,6 +103,30 @@ public class MainActivity extends Activity {
             boolean r = Root.available();
             say("root: " + (r ? "ok (uid=0)" : "NOT granted"));
         });
+
+        lan = new LanConfig(cfg, new LanConfig.Sink() {
+            @Override
+            public void onConfig(org.json.JSONObject o, int seq, int watches) {
+                long now = System.currentTimeMillis();
+                if (now - lastCfgSay < 1000) return;
+                lastCfgSay = now;
+                say("config: seq " + seq + ", esp " + (cfg.espBox ? "on" : "off")
+                        + " aim " + (cfg.aimEnabled ? cfg.aimBone + "/" + cfg.aimSmooth : "off")
+                        + ", watch " + watches);
+            }
+
+            @Override
+            public void onStatus(String line) {
+                say(line);
+            }
+        });
+        lan.setMem((addr, len) -> {
+            MemClient c = client;
+            int pid = gamePid;
+            if (c == null || pid == 0) throw new java.io.IOException("not connected");
+            return c.read(pid, addr, len);
+        });
+        lan.start();
     }
 
     private int dp(int v) {
@@ -152,10 +182,30 @@ public class MainActivity extends Activity {
         say("install: " + (cp.ok() ? cp.out.replace('\n', ' ') : "FAILED " + cp.out));
         if (!cp.ok()) return;
 
-        // 2. restart it, so a rebuilt binary always wins over a running one
-        Root.run("pkill -f .ffmemd 2>/dev/null", 5);
+        // The copy in the app's own storage is not needed any more: it is an
+        // asset in the APK and can be re-extracted on demand. Deleting it now
+        // means the only artefact on the device is the APK itself.
+        //noinspection ResultOfMethodCallIgnored
+        local.delete();
+
+        // 2. a daemon from a previous run must go first: it owns the abstract
+        // socket, so a new one would fail to bind and the app would silently
+        // talk to the old build. Its cmdline is scrubbed, so the socket is the
+        // only handle - ask it to exit through the socket.
+        try {
+            MemClient stale = new MemClient();
+            int old = stale.ping();
+            stale.shutdown();
+            stale.close();
+            say("old: daemon pid " + old + " asked to exit");
+            Thread.sleep(250);
+        } catch (IOException | InterruptedException ignored) {
+            // nothing running - the normal case
+        }
+
         Root.Result st = Root.startDetached(DAEMON_TMP, getApplicationInfo().uid);
-        say("start: " + (st.ok() ? "spawned" : "FAILED " + st.out));
+        say("start: " + (st.ok() ? "spawned, binary unlinked (no path left)"
+                : "FAILED " + st.out));
 
         // 3. connect, with a short retry: the socket appears a few ms later
         MemClient c = null;
@@ -171,8 +221,8 @@ public class MainActivity extends Activity {
             return;
         }
         client = c;
-        c.ping();
-        say("socket: connected");
+        daemonPid = c.ping();
+        say("socket: connected (daemon pid " + daemonPid + ")");
 
         // 4. the game
         int pid = c.find(GAME);
@@ -186,6 +236,7 @@ public class MainActivity extends Activity {
             return;
         }
         say("game: " + which + " pid " + pid);
+        gamePid = pid;
 
         // 5. the runtime, and a read from it
         long base = c.base(pid, "libil2cpp.so");
@@ -222,18 +273,26 @@ public class MainActivity extends Activity {
 
     private void stopAll() {
         io.execute(() -> {
-            if (client != null) {
-                client.close();
+            MemClient c = client;
+            if (c != null) {
+                try {
+                    c.shutdown();
+                } catch (IOException ignored) { }
+                c.close();
                 client = null;
             }
-            Root.run("pkill -f .ffmemd 2>/dev/null; rm -f " + DAEMON_TMP, 8);
-            say("stopped: daemon killed, socket closed");
+            if (daemonPid != 0) Root.run("kill -9 " + daemonPid + " 2>/dev/null", 5);
+            Root.run("rm -f " + DAEMON_TMP, 5);
+            gamePid = 0;
+            daemonPid = 0;
+            say("stopped: daemon gone, no file left");
         });
     }
 
     @Override
     protected void onDestroy() {
         super.onDestroy();
+        if (lan != null) lan.shutdown();
         if (client != null) client.close();
         io.shutdown();
     }

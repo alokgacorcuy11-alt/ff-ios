@@ -30,6 +30,11 @@ SUITES = [
     ("math          ", HERE / "test_math.py"),
     # compiles and drives android/daemon/memd.c on a Linux host; skips on Windows
     ("android daemon", HERE / "test_memd.py"),
+    # pins the laptop -> phone packet format against LanConfig.java and runs
+    # a real sender/listener pair over UDP
+    ("lan config    ", HERE / "test_lan_config.py"),
+    # compiles the app's Java against API stubs; no Android SDK needed
+    ("app java      ", HERE / "test_java.py"),
 ]
 
 # The shell suites are not Python, so they need their own runner. They are

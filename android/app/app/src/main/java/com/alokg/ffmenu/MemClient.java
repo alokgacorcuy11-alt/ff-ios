@@ -31,6 +31,7 @@ final class MemClient implements Closeable {
     static final int CMD_BASE  = 4;
     static final int CMD_FIND  = 5;
     static final int CMD_MAPS  = 6;
+    static final int CMD_SHUTDOWN = 7;
 
     private static final int REQ_SIZE = 88;   // 4+4+4+4+8+64, packed
 
@@ -81,8 +82,16 @@ final class MemClient implements Closeable {
         return ByteBuffer.wrap(b).order(ByteOrder.LITTLE_ENDIAN).getInt();
     }
 
-    void ping() throws IOException {
-        call(CMD_PING, 0, 0, 0, null);
+    /** Returns the daemon's pid, so it can be killed without matching a cmdline. */
+    int ping() throws IOException {
+        byte[] d = call(CMD_PING, 0, 0, 0, null);
+        if (d.length < 4) return 0;
+        return ByteBuffer.wrap(d).order(ByteOrder.LITTLE_ENDIAN).getInt();
+    }
+
+    /** Asks the daemon to exit. The socket is the only handle: no pid file. */
+    void shutdown() throws IOException {
+        call(CMD_SHUTDOWN, 0, 0, 0, null);
     }
 
     int find(String cmdlineNeedle) throws IOException {

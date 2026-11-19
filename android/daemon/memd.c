@@ -19,16 +19,18 @@
 //   req  { u32 cmd; u32 pid; u32 len; u32 name_len; u64 addr; char name[64]; }
 //   rsp  { u32 status; u32 len; }  followed by len bytes
 //
-//   cmd 1 PING   -> status 0, len 0
+//   cmd 1 PING   -> status 0, len 4, the server pid as u32
 //   cmd 2 READ   -> bytes from [addr, addr+len)
 //   cmd 3 WRITE  -> consumes len bytes after the request, status 0 on success
 //   cmd 4 BASE   -> writes the load base of `name` (e.g. libil2cpp.so) as u64
 //   cmd 5 FIND   -> writes the pid of the process whose cmdline contains `name`
 //   cmd 6 MAPS   -> writes up to len bytes of /proc/<pid>/maps
+//   cmd 7 SHUTDOWN -> status 0, then the service kills itself
 //
 // Only the uid passed as argv[1] may talk to it: the socket lives in the
 // abstract namespace, which is not protected by file permissions, so the peer
-// credential check is the access control.
+// credential check is the access control. The uid is consumed at startup and
+// then erased from the process's own cmdline along with the binary path.
 //
 // Build: see build.sh (NDK clang, static, arm64).
 
@@ -52,12 +54,13 @@
 #define MAX_REQ_LEN   (1u << 20)   /* 1 MiB per read, enough for a player array */
 
 enum {
-    CMD_PING  = 1,
-    CMD_READ  = 2,
-    CMD_WRITE = 3,
-    CMD_BASE  = 4,
-    CMD_FIND  = 5,
-    CMD_MAPS  = 6,
+    CMD_PING     = 1,
+    CMD_READ     = 2,
+    CMD_WRITE    = 3,
+    CMD_BASE     = 4,
+    CMD_FIND     = 5,
+    CMD_MAPS     = 6,
+    CMD_SHUTDOWN = 7,
 };
 
 typedef struct __attribute__((packed)) {
@@ -75,6 +78,22 @@ typedef struct __attribute__((packed)) {
 } rsp_t;
 
 static uid_t g_uid;
+static pid_t g_server_pid;
+
+/* Overwrite argv in place, so /proc/<pid>/cmdline shows a boring name instead
+ * of "/data/local/tmp/.ffmemd 10234". The strings are contiguous in the
+ * initial stack; zeroing the whole span also removes the uid argument. This
+ * has to happen after the uid has been parsed. */
+static void scrub_argv(int argc, char **argv) {
+    static const char fake[] = "logd.writer";
+    if (argc < 1 || !argv[0]) return;
+    char *start = argv[0];
+    char *end = argv[argc - 1] + strlen(argv[argc - 1]);
+    size_t span = (size_t)(end - start);
+    memset(start, 0, span);
+    size_t n = strlen(fake);
+    memcpy(start, fake, n < span ? n : span);
+}
 
 static int write_all(int fd, const void *buf, size_t n) {
     const uint8_t *p = (const uint8_t *)buf;
@@ -195,8 +214,23 @@ static void handle(int fd) {
         s.len = 0;
 
         if (q.cmd == CMD_PING) {
+            /* The server pid, not this child's: the app needs it to kill a
+             * stale daemon without matching on a cmdline, because the cmdline
+             * is scrubbed to something boring on purpose. */
+            uint32_t me = (uint32_t)g_server_pid;
+            s.len = sizeof(me);
             if (write_all(fd, &s, sizeof(s)) != 0) break;
+            if (write_all(fd, &me, sizeof(me)) != 0) break;
             continue;
+        }
+
+        if (q.cmd == CMD_SHUTDOWN) {
+            /* Answer first, then take the whole service down. This is how a
+             * reconnect replaces a daemon from a previous run: there is no pid
+             * file and no searchable cmdline, so the socket is the handle. */
+            if (write_all(fd, &s, sizeof(s)) != 0) break;
+            kill(g_server_pid, SIGKILL);
+            break;
         }
 
         if (q.cmd == CMD_FIND) {
@@ -303,8 +337,11 @@ int main(int argc, char **argv) {
     }
     g_uid = (uid_t)strtoul(argv[1], NULL, 10);
 
-    /* The game's own /proc scan would see this name. Make it unremarkable. */
+    /* The game's own /proc scan would see the path and the name. Make both
+     * unremarkable: cmdline becomes "logd.writer", comm the same. */
+    scrub_argv(argc, argv);
     prctl(PR_SET_NAME, "logd.writer", 0, 0, 0);
+    g_server_pid = getpid();
     umask(077);
     signal(SIGCHLD, SIG_IGN);   /* per-client children, reaped by the kernel */
 

@@ -59,7 +59,10 @@ final class Root {
     static Result startDetached(String binPath, int uid) {
         String cmd = "cd /data/local/tmp && "
                 + "nohup " + binPath + " " + uid
-                + " </dev/null >/dev/null 2>&1 &";
+                + " </dev/null >/dev/null 2>&1 & "
+                // Nothing left on disk: the process keeps running from the
+                // inode, but there is no path to find, stat or copy.
+                + "sleep 0.4; rm -f " + binPath;
         return run(cmd, 10);
     }
 }

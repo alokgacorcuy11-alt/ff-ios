@@ -30,3 +30,9 @@ android {
         resources.excludes += setOf("META-INF/*")
     }
 }
+
+// MainActivity has a non-ASCII label ("FF · mem bridge"); pin the encoding so
+// the build does not depend on the platform default.
+tasks.withType<org.gradle.api.tasks.compile.JavaCompile>().configureEach {
+    options.encoding = "UTF-8"
+}

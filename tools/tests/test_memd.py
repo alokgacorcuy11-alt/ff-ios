@@ -94,8 +94,21 @@ class Client:
 VICTIM_C = r"""
 #include <stdio.h>
 #include <unistd.h>
+#include <sys/prctl.h>
+#ifndef PR_SET_PTRACER
+#define PR_SET_PTRACER 0x59616d61
+#endif
+#ifndef PR_SET_PTRACER_ANY
+#define PR_SET_PTRACER_ANY ((unsigned long)-1)
+#endif
 char slot[64] = "ORIGINAL";
 int main(void) {
+    /* Ubuntu ships yama ptrace_scope=1: a process may only be read by its own
+     * descendants. The daemon is a sibling, so without this opt-in every read
+     * fails with EACCES and the test would fail on CI while passing on a
+     * machine with ptrace_scope=0. On Android this is not needed - root has
+     * CAP_SYS_PTRACE, which yama always allows. */
+    prctl(PR_SET_PTRACER, PR_SET_PTRACER_ANY, 0, 0, 0);
     printf("%p\n", (void *)slot);
     fflush(stdout);
     sleep(120);
@@ -148,7 +161,16 @@ def main() -> int:
     try:
         c = Client()
         st, data = c.call(1)                                   # PING
-        check("PING answers", st == 0 and data == b"")
+        check("PING answers with the server pid",
+              st == 0 and len(data) == 4 and
+              struct.unpack("<I", data)[0] == daemon.pid,
+              f"{data.hex()} vs {daemon.pid}")
+
+        # the daemon rewrites its own argv, so neither the binary path nor the
+        # uid is readable from /proc - the game's process scan sees nothing
+        cmdline = Path(f"/proc/{daemon.pid}/cmdline").read_bytes()
+        check("the cmdline is scrubbed", b"memd" not in cmdline
+              and b"ffmemd" not in cmdline, cmdline)
 
         st, data = c.call(5, name=b"ffvictim")                 # FIND
         pid = struct.unpack("<I", data)[0] if len(data) == 4 else 0
@@ -180,7 +202,17 @@ def main() -> int:
         check("a second client is served", st == 0)
         c2.close()
 
+        # the service must be killable through the socket alone: the cmdline
+        # and comm are scrubbed, so there is no name to pkill
+        st, _ = c.call(7)                                      # SHUTDOWN
+        check("SHUTDOWN answers", st == 0)
         c.close()
+        try:
+            daemon.wait(timeout=3)
+            gone = daemon.poll() is not None
+        except subprocess.TimeoutExpired:
+            gone = False
+        check("SHUTDOWN stops the service", gone)
     finally:
         daemon.terminate()
         victim.terminate()

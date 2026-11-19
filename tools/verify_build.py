@@ -152,9 +152,13 @@ def main(argv: list[str]) -> int:
     ap.add_argument("--label", required=True)
     ap.add_argument("--identity", type=Path,
                     help="write the facts here when the checks pass")
+    ap.add_argument("--no-cert-check", action="store_true",
+                    help="skip the certificate digest (for fixtures and "
+                         "machines with no JDK; never used by CI)")
     args = ap.parse_args(argv)
 
-    problems, facts = verify(args.apk, args.package, args.label)
+    problems, facts = verify(args.apk, args.package, args.label,
+                             check_cert=not args.no_cert_check)
 
     print(f"apk       {args.apk}")
     print(f"package   {facts.get('manifest_package')}")

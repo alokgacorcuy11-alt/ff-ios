@@ -159,6 +159,28 @@ def main() -> int:
     check("absent label is absent",
           vb.find_label(b"something else", "Util") is None)
 
+    # --- keytool present, and what its absence of output means
+    class _Run:
+        def __init__(self, out):
+            self.stdout, self.stderr, self.returncode = out, "", 0
+
+    orig_which, orig_run = vb.shutil.which, vb.subprocess.run
+    try:
+        vb.shutil.which = lambda name: "keytool"
+
+        vb.subprocess.run = lambda *a, **k: _Run("Owner: CN=Android\n")
+        cert, prob = vb.cert_info(Path("fixture.apk"))
+        check("keytool without a digest is a failure, not silence",
+              prob is not None and "v1" in prob, str(prob))
+
+        vb.subprocess.run = lambda *a, **k: _Run(
+            "Owner: CN=Android\nSHA256: AB:CD:EF\n")
+        cert, prob = vb.cert_info(Path("fixture.apk"))
+        check("a readable certificate is a pass",
+              prob is None and cert.get("sha256") == "AB:CD:EF", str(cert))
+    finally:
+        vb.shutil.which, vb.subprocess.run = orig_which, orig_run
+
     # --- IDENTITY.txt is built from the facts
     text = vb.identity_text({
         "package": PKG, "label": LABEL, "apk_sha256": "ab" * 32,
@@ -173,8 +195,11 @@ def main() -> int:
 
     # --- the CLI end to end
     out = tmp / "dist" / "IDENTITY.txt"
+    # --no-cert-check: the fixture has no real v1 signature, and this machine
+    # may or may not have a JDK. CI never passes this flag.
     r = subprocess.run([sys.executable, str(TOOL), "--apk", str(good),
                         "--package", PKG, "--label", LABEL,
+                        "--no-cert-check",
                         "--identity", str(out)],
                        capture_output=True, text=True, timeout=60)
     check("cli exits 0", r.returncode == 0, r.stderr.strip()[:100])
@@ -185,7 +210,7 @@ def main() -> int:
         check("cli identity names the label", LABEL in body)
 
     r = subprocess.run([sys.executable, str(TOOL), "--apk", str(wrong),
-                        "--package", PKG, "--label", LABEL],
+                        "--package", PKG, "--label", LABEL, "--no-cert-check"],
                        capture_output=True, text=True, timeout=60)
     check("cli exits 1 on a stale package", r.returncode == 1,
           f"rc={r.returncode}")

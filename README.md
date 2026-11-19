@@ -15,6 +15,7 @@ android/offsets/example.json what the reader needs, with the ?? gate
 tools/lan_config.py          laptop side: push settings over the hotspot
 tools/apk_triage.py          inspect any APK with no SDK: manifest, cert, libs
 tools/footprint.py           what a blacklist could key on, before shipping
+tools/payload_forge.py       one container per install: no shared bytes at all
 ```
 
 ## Why external and not injected
@@ -118,6 +119,15 @@ game anyway.
 If the "blacklist" is server-side — cheater lobby, trust score, a flagged
 device — no client change fixes it. That verdict came from behaviour and it
 follows the device. Table and the two cases: `android/README.md` §6b.
+
+## No-root delivery
+
+`android/README.md` §8d. Without root the code has to live inside the game, so
+the client gets repacked - but it carries nothing: a panel serves a
+per-install container over `127.0.0.1`, the client verifies and decrypts it in
+memory and loads the module from an anonymous `memfd`. No file in the game's
+sandbox, no wireless debugging, no two users sharing a byte. The repack itself
+is the residual tell and cannot be removed.
 
 ## Detection
 

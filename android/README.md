@@ -501,6 +501,123 @@ of the file — package, certificate, APK hash, every asset over 4 KB.
 against this project's APK it finds no cross-app writes and no runtime code
 loading; run against XYZ it prints the table above.
 
+## 8d. No root, no ADB, no files - the delivery layer
+
+Three constraints, taken as given: **no root, no virtual space, no Shizuku**.
+XYZ satisfies them with wireless ADB pairing and a file drop. This does it with
+neither.
+
+### The part that cannot be avoided
+
+Full ESP - box, health, name, distance, skeleton - needs bone transforms and
+the player array. Those live in Free Fire's process. No-root means no
+`ptrace`, so the code that reads them has to be **inside** that process. There
+are exactly two ways in: a repacked client, or a virtual space. Virtual space
+is out by constraint, so the client is repacked. Nothing in this section
+changes that; it changes what the repack has to carry.
+
+### What it does not carry
+
+XYZ's repack carries an IFix patch assembly that runs inside the managed
+runtime, plus two files in `/Android/data/com.dts.freefireth/files` whose
+decoded hashes are identical for every user. Both are permanent, nameable
+artefacts.
+
+Instead:
+
+```
+panel (random package, random cert)                client (repacked)
+┌───────────────────────────┐                     ┌──────────────────────┐
+│ FeedServer               │  127.0.0.1:<port>   │ FeedFormat.fetch     │
+│  container, in memory    │ ──────────────────► │  verify MAC          │
+│  HMAC challenge-response │                     │  decrypt             │
+│  never written to disk   │                     │  module bytes in RAM │
+└───────────────────────────┘                     │  memfd_create        │
+                                                   │  dlopen(/proc/self/fd/N)
+                                                   └──────────────────────┘
+```
+
+- the container exists only in the panel's heap; it is never written anywhere,
+  so Free Fire has nothing to list, stat or hash
+- the client's key lives in the client; the panel cannot read the module back
+  out either
+- the module is never a file on the client: it goes straight from the socket
+  into an anonymous `memfd` and is loaded from `/proc/self/fd/N`, so it does
+  not appear in the APK and has no path in `/proc/<pid>/maps`
+
+### Per install, nothing is shared
+
+`tools/payload_forge.py` writes a container and a manifest:
+
+```
+container = XYZF | ver | nonce(12) | padlen(u16) | moduleLen(u32) | ct | tag(32)
+encKey       = HMAC-SHA256(master, "xyz-enc")
+macKey       = HMAC-SHA256(master, "xyz-mac")
+keystream[i] = HMAC-SHA256(encKey, nonce | u32le(i))
+tag          = HMAC-SHA256(macKey, header | ct | installName)
+```
+
+Every forge draws a new 32-byte master, a new install name, a new padding
+length and a new port. Two forges of the same module share no bytes and no
+hash, which is the property XYZ is missing.
+
+```bash
+python tools/payload_forge.py --module out/libxyz.so --out feed
+python tools/payload_forge.py --open feed            # verify + decode
+```
+
+`feed/container.bin` goes into the panel's assets, `feed/manifest.json` gives
+the client its key, name and port.
+
+### Why the MAC is not optional
+
+Every app on the device can connect to `127.0.0.1`. Two things follow, and both
+are handled:
+
+| attack | why it fails |
+|---|---|
+| another app connects and takes the container | it is ciphertext; the key is only in the client |
+| another app squats the port and answers our client | the response is `HMAC(macKey, challenge \| container)` and the client checks it before decrypting |
+| a stale container from an older install is replayed | the install name is inside the tag |
+
+`tools/tests/test_feed.py` compiles the two Java classes and speaks the
+protocol to them from Python - challenge, response, MAC check, decode - then
+serves from Python and makes Java's `fetch` pull it. If the two sides ever
+drift, that test fails instead of the module silently not arriving.
+
+### Against XYZ, measured
+
+| | XYZ V3.0 | this |
+|---|---|---|
+| files in the game's data dir | **2**, fixed hashes | **0** |
+| values shared by every user | **3 payload hashes** + package + cert | package and cert, both random per build |
+| wireless debugging left enabled | **yes** | no |
+| ADB public key registered on the device | **yes** | no |
+| code added to the managed runtime | **yes** (IFix assembly) | no |
+| module visible in the APK or on disk | **yes** | no |
+| panel package | fixed `com.xyz.app` | random per build |
+
+### What this still does not fix
+
+The repacked client is the remaining tell, and no amount of transport work
+removes it:
+
+1. **its signature is not Garena's.** If Free Fire compares its own signing
+   certificate against a constant, the comparison is inside code that is
+   already patched - patch it too.
+2. **its file hashes differ from the store build.** Same answer: the check runs
+   in the client, so the client decides the answer. Keep the patch small, keep
+   the native module out of the APK, and the number of things that have to be
+   changed to lie about it stays small.
+3. **behaviour is still behaviour.** `SetAimRotation` snapping, 2× reload,
+   no-recoil and fast-switch are timing anomalies the server sees whatever the
+   client says. The module has to be written smooth by design, same as §8.
+
+That is the honest ceiling of no-root: the cheat is inside the game, so the
+game can find it. It cannot find a file that does not exist, a hash that is
+different for every user, or a package it has never seen - which is what this
+layer buys.
+
 ## 9. Files
 
 ```
@@ -530,13 +647,16 @@ tools/
 ├─ apk_triage.py      inspect any APK with no SDK: manifest, cert, libs, strings
 ├─ verify_build.py    the publish gate: does the APK carry the identity asked for
 ├─ footprint.py       what a game could blacklist a build on, before shipping
+├─ payload_forge.py   one container per install: unique key, name, padding, port
 └─ tests/
    ├─ test_memd.py          drives the real daemon on Linux
    ├─ test_lan_config.py    pins the packet format, runs sender -> listener
    ├─ test_java.py          compiles the app's Java against API stubs
    ├─ test_apk_triage.py    the APK inspector against a synthetic APK
    ├─ test_verify_build.py  the gate against APKs broken one field at a time
-   └─ test_footprint.py     the blacklist-surface scanner, dirty vs clean APK
+   ├─ test_footprint.py     the blacklist-surface scanner, dirty vs clean APK
+   ├─ test_payload_forge.py the container: uniqueness, tamper, manifest
+   └─ test_feed.py          python forge <-> java transport over a real socket
 ```
 
 The old iOS tree is not deleted from history: tag `ios-final` on `main` is the

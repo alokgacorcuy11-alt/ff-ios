@@ -31,6 +31,8 @@ SOURCES = [
     "com/alokg/ffmenu/MainActivity.java",
     "com/alokg/ffmenu/MemClient.java",
     "com/alokg/ffmenu/Root.java",
+    "com/alokg/ffmenu/feed/FeedFormat.java",
+    "com/alokg/ffmenu/feed/FeedServer.java",
 ]
 
 # Every stub member below exists in the real API with the same signature. If a

@@ -41,6 +41,10 @@ SUITES = [
     ("verify build  ", HERE / "test_verify_build.py"),
     # what a blacklist could key on: cross-app writes, patch markers, hashes
     ("footprint     ", HERE / "test_footprint.py"),
+    # the per-install container: uniqueness, tamper, manifest
+    ("forge         ", HERE / "test_payload_forge.py"),
+    # python forge <-> java transport, spoken over a real socket
+    ("feed          ", HERE / "test_feed.py"),
 ]
 
 # The shell suites are not Python, so they need their own runner. They are

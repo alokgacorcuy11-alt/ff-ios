@@ -39,6 +39,8 @@ SUITES = [
     ("apk triage    ", HERE / "test_apk_triage.py"),
     # the publish gate: a built APK must carry the identity it was asked for
     ("verify build  ", HERE / "test_verify_build.py"),
+    # what a blacklist could key on: cross-app writes, patch markers, hashes
+    ("footprint     ", HERE / "test_footprint.py"),
 ]
 
 # The shell suites are not Python, so they need their own runner. They are

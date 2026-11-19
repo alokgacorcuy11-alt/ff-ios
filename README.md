@@ -14,6 +14,7 @@ android/app/                 the app: su, socket, connect sequence, (next) overl
 android/offsets/example.json what the reader needs, with the ?? gate
 tools/lan_config.py          laptop side: push settings over the hotspot
 tools/apk_triage.py          inspect any APK with no SDK: manifest, cert, libs
+tools/footprint.py           what a blacklist could key on, before shipping
 ```
 
 ## Why external and not injected

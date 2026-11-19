@@ -398,6 +398,109 @@ how you set up Magisk, not by this app:
 There is no "undetectable". The external design removes the in-process tells
 that the iOS build could only hide; it does not remove the rooted device.
 
+## 8b. What the XYZ build actually is
+
+Unpacked for comparison: `XYZ VIP V3.0.7z` (key `LANXZ-PROJECKT`) → one APK,
+`com.xyz.app` 3.0 (50), 12,356,089 B, sha256
+`a48d526040975f73e50d49b67f8c5a41a5df70b23ef4b19516fd5aedaff19ce2`.
+
+The ad says *NO ROOT & VIRTUAL, NO SHIZUKU, NO VPN, NO KEY*. Reading the DEX
+says something else.
+
+| what it does | evidence |
+|---|---|
+| pairs with the phone's own `adbd` over wireless debugging | `AdbClient extends io.github.muntashirakon.adb.AbsAdbConnectionManager`, `libspake2.so`, `libconscrypt_jni.so`, `PairingService`, string `adb pairing_auth aes-128-gcm key` |
+| writes into the game's sandbox | `ModuleInstaller.dir()` = `Environment.getExternalStorageDirectory()/Android/data/com.dts.freefireth/files` |
+| transfer | `printf '%s' '<base64 chunk>' \| base64 -d >> <tmp>`, then `sha256sum` compare, `chmod 644`, `mv -f` |
+| drops two files | `assets/ffrtc_log.txt` (172,823 B) and `assets/localConfig.json` (54 B) |
+| container | `RMP1` + 12-byte IV + AES-256-GCM, key derived in `AssetCipher`, AAD = the filename |
+| decrypted `localConfig.json` | `{"testCodePatch":true}` — an IFix config switch |
+| decrypted `ffrtc_log.txt` | 172 KB of a real Free Fire RTC log from an SM-A065M — a decoy, chosen because the game writes a file by that name itself |
+| the actual cheat | `assets/Assembly-CSharp-patch.bytes` → 119,036 B, an IFix patch assembly for `Assembly-CSharp, Version=0.86.0.518` |
+| what the patch hooks | `CurrentLocalPlayer`, `GetHeadTF`, `get_HeadCollider`, `get_NeckBone`, spine/arm/leg/foot/hand/hip getters, `GetActiveWeapon`, `IsHoldingFireForSingleShot`, `SetAimRotation`, `get_InSwapWeaponCD`, `ResetSwapWeaponTime` |
+| feature flags inside it | `XYZ_V6_DRAG_NECK`, `XYZ_ESP_LINE_V6`, `XYZ_V8_ESP_NAME_NICKNAME`, `XYZ_ESP_HEALTH_FILL_V2`, `XYZ_V25_SKELETON_WHITE_1`, `XYZ_V25_DISTANCE_METRE_1`, `XYZ_V26_NORECOIL_PROFILE_1`, `XYZ_V27_HEAD_PRIORITY_1`, `XYZ_V27_FAST_SWITCH_1`, `XYZ_V28_NOSPREAD_TEST_1`, `XYZ_V30_RELOAD_X2_1` |
+| ESP rendering | Android `Canvas`/`Paint`/`Bitmap` plus `UnityEngine.TextMesh`, from inside the Unity process |
+| needs a patched client | the app's own error string: *"Modul tidak tersedia. Buka game dengan pemuat yang kompatibel dan diizinkan."* |
+
+So it is not an external cheat. The panel is a delivery mechanism; the cheat is
+a patched `Assembly-CSharp` running inside Free Fire. "No root" is true, and it
+is the only claim that is: ADB runs as uid 2000 (`shell`), which may write into
+another app's external files directory without root — that is the whole reason
+the wireless-debugging step exists.
+
+The build is also itself a repack: `SealGuard.full/integrity/key` all
+`return 1`, and it carries `assets/SignatureKiller/origin.apk` (6.1 MB) plus
+`libSignatureKiller.so` for four ABIs — MT Manager's signature killer.
+
+### Why it is blacklisted
+
+Every one of these is a stable value shared by every user of XYZ V3.0:
+
+| what the game can match | value |
+|---|---|
+| `localConfig.json` after decode | `3e5c4915bb8c0718aa6fbb8143cf954ff32221f9c0ef0b9d83fd0b1fc1c95535` |
+| `ffrtc_log.txt` after decode | `eb185928fdf262bfe0a0a98ba1aad4cd5e40ae673070155e529aac0dd5c837c7` |
+| the IFix patch after decode | `4a5bdc2295c73a83c69bd5790f2c53b22e8912f4ac58aafe7e8f43a2e472838e` |
+| the patched client | repack: `classes.dex`, `libil2cpp.so` and every asset hash differ from the store build |
+
+And two of those three files sit in **the game's own external files dir** —
+the one directory Free Fire needs no permission and no trickery to list. A
+single hash match on `ffrtc_log.txt` flags every user of the build at once.
+
+On top of the files:
+
+- the IFix patch adds a managed assembly; the game can walk
+  `AppDomain.CurrentDomain.GetAssemblies()`
+- ESP is drawn by Android views created from the game's own uid
+- `SetAimRotation` snapping, no-recoil, 2× reload and fast-switch are timing
+  anomalies the server sees regardless of what the client claims
+
+"Blacklisted, not banned" is a response tier, not safety — and the ad itself
+says *PAKAI AKUN KEDUA*, which is the author admitting the account gets burned.
+
+### The comparison that matters
+
+| | XYZ V3.0 | this project |
+|---|---|---|
+| package the game can name | yes, fixed | yes, random per build, and optional |
+| code inside the game process | **yes** (IFix) | no |
+| files in the game's sandbox | **yes**, two, fixed hashes | none |
+| game APK modified | **yes** | no |
+| needs root | no | yes |
+| detectable by behaviour | yes | yes |
+
+There is no no-root design that is also blacklist-safe. No-root means one of
+two things:
+
+1. **code inside the game** (XYZ's way, modded client, IFix, virtual space,
+   cloned app) — detectable by construction, because everything it does happens
+   where the game can see it;
+2. **never touching the game process** — screen capture through `MediaProjection`
+   plus touch injection through an Accessibility service. That one is genuinely
+   clean, but it only sees pixels: no bone data, no player list, no names, no
+   distance. Aim assist yes; ESP no.
+
+The external reader in this repo is the third option, and it costs root.
+
+## 8c. Checking a build before shipping it
+
+`tools/footprint.py` answers "what could a list key on" for any APK:
+
+```bash
+python tools/footprint.py dist/ffmenu.apk --check
+```
+
+It reports the identity (package, certificate), the mechanisms it can recognise
+(signature killer, managed patch, runtime dex loading, Frida, Xposed, native
+hooking, ADB pairing, overlay, accessibility, screen capture), every
+`Android/data/<other package>/` path in the DEX, the file-like strings that
+could be payload names, and then the values that are identical for every user
+of the file — package, certificate, APK hash, every asset over 4 KB.
+
+`--check` exits non-zero on a hard finding, so it can gate a release. Run
+against this project's APK it finds no cross-app writes and no runtime code
+loading; run against XYZ it prints the table above.
+
 ## 9. Files
 
 ```
@@ -426,12 +529,14 @@ tools/
 ├─ lan_config.py      the laptop side: send settings, watch addresses
 ├─ apk_triage.py      inspect any APK with no SDK: manifest, cert, libs, strings
 ├─ verify_build.py    the publish gate: does the APK carry the identity asked for
+├─ footprint.py       what a game could blacklist a build on, before shipping
 └─ tests/
    ├─ test_memd.py          drives the real daemon on Linux
    ├─ test_lan_config.py    pins the packet format, runs sender -> listener
    ├─ test_java.py          compiles the app's Java against API stubs
    ├─ test_apk_triage.py    the APK inspector against a synthetic APK
-   └─ test_verify_build.py  the gate against APKs broken one field at a time
+   ├─ test_verify_build.py  the gate against APKs broken one field at a time
+   └─ test_footprint.py     the blacklist-surface scanner, dirty vs clean APK
 ```
 
 The old iOS tree is not deleted from history: tag `ios-final` on `main` is the

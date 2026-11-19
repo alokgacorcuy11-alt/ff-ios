@@ -432,6 +432,16 @@ The build is also itself a repack: `SealGuard.full/integrity/key` all
 `return 1`, and it carries `assets/SignatureKiller/origin.apk` (6.1 MB) plus
 `libSignatureKiller.so` for four ABIs — MT Manager's signature killer.
 
+The decrypted patch also settles what the target client is. It references
+`Assembly-CSharp` and IFix, and starts an HTTP server in-process that serves
+`/item1` … `/item5` and `/itemN/desativar` — which is the panel: a WebView
+pointed at `127.0.0.1` inside the game. `Assembly-CSharp` and IFix only exist
+in a Unity build with the Mono scripting backend, so the client under this is
+**not** the store APK and not IL2CPP. The member list it resolves, grouped by
+what it is for, is in `android/offsets/hook_candidates.md` - and it is the
+reason the next thing needed is `Assembly-CSharp.dll` from the installed
+client, not `libil2cpp.so`.
+
 ### Why it is blacklisted
 
 Every one of these is a stable value shared by every user of XYZ V3.0:

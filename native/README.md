@@ -221,9 +221,9 @@ curl http://127.0.0.1:8082/api/native | head -20
 
 What it does: unpack → verify `cryptid 0` → drop the dylib in `Frameworks/` →
 `insert_dylib --inplace --overwrite --strip-codesig --codesign` → `ldid -S` every
-nested binary → apply `native/entitlements.plist` (`get-task-allow` is the one
-that makes dyld actually map the injected image) → re-sign the bundle with
-`zsign` → repack.
+nested binary → sign with entitlements generated from your own profile
+(`tools/make_sideload_entitlements.py`; `get-task-allow` is *not* needed - dyld
+maps an `LC_LOAD_DYLIB` either way) → re-sign the bundle with `zsign` → repack.
 
 Then open the `.ipa` in TrollStore (permanent, no revocation) or AltStore
 (7-day loop). On a jailbroken device, unzip into the app container and `uicache`.
@@ -293,7 +293,8 @@ here is undetectable in principle, and the client-side tells are structural.
 native/
 ├─ Makefile                  Theos, produces FFMenu.dylib (no substrate)
 ├─ Tweak.x                   constructor -> wait for il2cpp -> bind -> install
-├─ entitlements.plist        get-task-allow + identity + network
+├─ entitlements.plist        empty by design - signer derives from the profile
+├─ entitlements.trollstore.plist   platform-application + no-container
 ├─ ff_native.example.json    the class/field map template (copy to state/)
 ├─ Core/
 │  ├─ IL2CPP.h/.m            il2cpp export resolution by dlsym + class finder

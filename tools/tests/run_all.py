@@ -29,6 +29,7 @@ SUITES = [
     ("ipa_probe     ", HERE / "test_ipa_probe.py"),
     ("package_ipa   ", HERE / "test_package_ipa.py"),
     ("metadata_hunt ", HERE / "test_metadata.py"),
+    ("entitlements  ", HERE / "test_entitlements.py"),
     ("math          ", HERE / "test_math.py"),
     ("sources       ", HERE / "test_sources.py"),
     # catches variables that only FFLOG reads - write-only in a RELEASE build,

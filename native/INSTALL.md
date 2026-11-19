@@ -24,10 +24,11 @@ What was actually fixed to get there:
 
 | Installer | iOS range | Cert needed | Bundle id | Entitlements | 7-day? |
 |---|---|---|---|---|---|
-| **TrollStore** | 14.0 – 16.6.1 (+ some 17.0) | **none** (fake-signs) | **original kept** | **original kept** + `get-task-allow` | **no** |
-| Sideloadly | any (12+) | free Apple ID or dev cert | must be rewritten | dev profile (`get-task-allow` included) | yes |
-| AltStore / SideStore | any (12+) | free Apple ID | must be rewritten | dev profile | yes |
+| **TrollStore** | 14.0 – 16.6.1 (+ some 17.0) | **none** (fake-signs) | **original kept** | **original kept** | **no** |
+| Sideloadly | any (12+) | free Apple ID or dev cert | must be rewritten | from your profile | yes |
+| AltStore / SideStore | any (12+) | free Apple ID | must be rewritten | from your profile | yes |
 | ESign / GBox / Scarlet | any (12+) | their cert, or yours | whatever you choose | depends on their cert | until revoked |
+| **Father / any online signer** | any (12+) | **their** cert, or yours if it accepts a p12 | follows the cert | follows the cert | until revoked |
 | Jailbroken (Sileo/dpkg) | matches jailbreak | none | original | original | no |
 
 **TrollStore is the best option by a wide margin** — no certificate, no expiry,
@@ -35,8 +36,11 @@ and it keeps the real bundle id and the app's original entitlements. That is why
 almost every FF mod IPA in circulation targets the TrollStore range.
 
 If you are outside that range, Sideloadly with your own free Apple ID is the
-clean route. Its provisioning profile *does* include `get-task-allow`, which is
-the entitlement that lets `dyld` map your injected image.
+clean route. Its provisioning profile includes `get-task-allow` — not because
+anything needs it (an `LC_LOAD_DYLIB` is mapped by dyld regardless of whether
+the app is debuggable), but because every development profile carries it. It is
+a signal, not a requirement, and `Core/Integrity.m` refuses to answer it at
+runtime.
 
 **One catch nobody mentions:** a free Apple ID cannot register the bundle id
 `com.dts.freefireth` — it is already taken. Sideload-only installs must rename
@@ -49,16 +53,84 @@ python tools/package_ipa.py decrypted.ipa FFMenu.dylib --bundle-id com.me.ff1
 Renaming can affect login on rare builds. If FF refuses to sign in, that is the
 cause, not the dylib.
 
+### 2b. "Bisa pasang pakai Father?" — yes, with three conditions
+
+Any signer works, because the IPA is deliberately sign-agnostic: decrypted,
+no `_CodeSignature`, no `embedded.mobileprovision`, no injected load command
+outside the bundle. Father, Sideloadly, ESign, GBox, AltStore and plain
+`codesign` all see the same payload. What decides success is not the app:
+
+1. **It must sign nested code.** `Frameworks/UnityServices.framework/UnityServices`
+   is where the dylib lives, and it is a *separate* Mach-O that needs its own
+   signature with the same certificate. A signer that only signs
+   `Payload/FreeFire.app/FreeFire` produces an app that installs and then dies
+   at launch with `Library not loaded ... code signature invalid`. Every
+   current signer does this correctly; a hand-rolled script often does not.
+2. **The bundle id must match the profile.** Free Apple ID and paid teams
+   cannot register `com.dts.freefireth` (Garena owns it), so use the renamed
+   payload. An enterprise cert with a wildcard profile can take either.
+3. **Entitlements must come from the profile, not from a guess.** That is what
+   the generator is for:
+
+```bash
+python tools/make_sideload_entitlements.py \
+    --profile dev.mobileprovision \
+    --ipa out/com.alokgacorcuy11.freefire-payload.ipa \
+    --udid 00008030-000A1B2C3D4E5F60 \
+    -o out/entitlements.sideload.plist
+```
+
+It prints what the profile grants, rewrites `application-identifier` and the
+keychain group to the IPA's real bundle id (without them every keychain call
+returns `-34018` and the game cannot stay logged in), drops `get-task-allow`,
+drops the macOS-only network key, and tells you if the profile is expired, is a
+wildcard, is an enterprise cert, or does not contain your UDID.
+
+Then sign with that file if the tool asks for one:
+
+```bash
+zsign -k cert.p12 -p pass -m dev.mobileprovision \
+      -e out/entitlements.sideload.plist -o signed.ipa \
+      out/com.alokgacorcuy11.freefire-payload.ipa
+```
+
+Two device-side facts for iOS 16 and newer (so: your 26.6 too):
+
+- **Developer Mode must be ON** for a development-signed app to launch:
+  Settings → Privacy & Security → Developer Mode → on → reboot → confirm.
+  Without it the icon installs and the app refuses to open.
+- **Free Apple ID = 7 days**, 3 apps at a time, 10 App IDs per week. After
+  expiry the app stops launching until it is signed again; the container and
+  the account session usually survive a re-sign of the same bundle id.
+
+| Symptom | Cause |
+|---|---|
+| `Unable to Verify App` / icon greyed out | cert not trusted: Settings → General → VPN & Device Management → Trust |
+| installs, dies instantly, `code signature invalid` in Console | nested framework was not re-signed |
+| `Library not loaded: @executable_path/Frameworks/UnityServices...` | the framework was not copied, or `Frameworks/` was stripped by the signer |
+| installs, launches, FF login fails / loops | keychain group missing (`-34018`) — regenerate entitlements |
+| "This app cannot be installed because its integrity could not be verified" | profile does not include this device's UDID |
+| app opens, no orb, no panel | dylib did not load; check Console for `UnityServices` and read the DIAGNOSTICS path in §5 |
+| works, then stops after a week | free cert expired — re-sign |
+
+**The one thing a signer decides for you:** whose certificate. A shared
+enterprise cert (what online signing services use) is used by thousands of
+installs, gets revoked regularly, and its Team ID is a well-known cheat-install
+signal. Your own Apple ID — free or paid — is strictly better on both counts.
+
+
 ## 3. Why the output is "sign-agnostic"
 
 `package_ipa.py` produces a **payload-only** IPA:
 
 - `_CodeSignature/` and `embedded.mobileprovision` removed → every signer
-  (TrollStore, Sideloadly, ESign, GBox) wants to create those itself, and a
-  stale one makes installs fail or apps refuse to launch
+  (TrollStore, Sideloadly, ESign, GBox, Father) wants to create those itself,
+  and a stale one makes installs fail or apps refuse to launch
 - bundle id left as-is unless you pass `--bundle-id`
-- entitlements are **not** embedded in the IPA at all — they live in
-  `native/entitlements.plist` for the signer that asks for them
+- entitlements are **not** embedded in the IPA at all — a signer derives them
+  from your profile (correct), or takes them from a file you generate with
+  `tools/make_sideload_entitlements.py` (§2b). `native/entitlements.plist` is
+  deliberately empty; a hand-written one is how sideloads break.
 
 So the same file goes into all of them. Nothing is installer-specific.
 
@@ -83,7 +155,8 @@ Then:
 
 - **TrollStore** → open the IPA on device → Install
 - **Sideloadly** → drag the IPA → your Apple ID → Start (add `--bundle-id` first)
-- **ESign/GBox** → import the IPA → sign with your cert → install
+- **ESign/GBox/Father** → import the IPA → sign with your cert → install
+- **any signer that asks for entitlements** → §2b, do not hand-write the plist
 
 Verify before installing, on your laptop:
 

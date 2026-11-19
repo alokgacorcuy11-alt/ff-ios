@@ -578,7 +578,8 @@ ff-proxy/
 │  ├─ USAGE.md             feature list, per-patch flow, troubleshooting
 │  ├─ Makefile             Theos -> FFMenu.dylib, iOS 12 floor, no substrate
 │  ├─ Tweak.x              stealth -> wait for il2cpp -> bind -> install
-│  ├─ entitlements.plist   get-task-allow + identity + network
+│  ├─ entitlements.plist   empty by design - a signer derives them from the profile
+│  ├─ entitlements.trollstore.plist   the private pair, TrollStore only
 │  ├─ ff_native.example.json   class/field map template (copy to state/)
 │  ├─ Core/                IL2CPP bridge, FFState, Game, ESP, Stealth, Compat
 │  └─ Menu/                native floating panel

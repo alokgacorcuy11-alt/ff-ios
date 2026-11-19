@@ -69,16 +69,27 @@ bagbak com.dts.freefireth                              # needs jailbreak, rootle
 
 Then `tools/build_ipa.sh` does the rest and refuses to run while `cryptid != 0`.
 
-### One entitlement that matters more than the rest
+### Entitlements: take them from the profile, never from a guess
 
-Your injected dylib only gets mapped if the main binary carries
-**`get-task-allow`**. That is the switch that tells `dyld` "this process may hold
-its own debug/injection rights". A normal App Store binary does not have it.
+An `LC_LOAD_DYLIB` is mapped by `dyld` whether or not the app is debuggable, so
+nothing about the injection needs a special entitlement. What actually breaks
+sideloads is the opposite: entitlements that the profile does not grant, or a
+missing `application-identifier` / keychain group (every keychain call then
+returns `-34018` and the game cannot stay logged in).
 
-`build_ipa.sh` does **not** replace the entitlements — it extracts the original
-ones with `ldid -e`, adds `get-task-allow` on top, and signs with the merged set.
-Replacing them wholesale breaks keychain, some SDKs, and anything bound to the
-Team ID.
+So: let the signer derive them from your `.mobileprovision` — that is what
+zsign, Sideloadly and Father do when you do not hand them a file. If a tool
+demands one, generate it from the same profile:
+
+```bash
+python tools/make_sideload_entitlements.py \
+    --profile dev.mobileprovision \
+    --ipa out/com.alokgacorcuy11.freefire-payload.ipa \
+    -o out/entitlements.sideload.plist
+```
+
+`native/entitlements.plist` is intentionally empty, and `build_ipa.sh` passes no
+entitlements file unless you set `ENTITLEMENTS` yourself.
 
 Related and worth knowing: Apple **App Attest** produces assertions bound to the
 original Team ID + bundle signature. Re-signing changes that signature, so an

@@ -216,6 +216,55 @@ Two consequences worth knowing:
 - `STOP` does the same, and `rm -f` is kept only to clean up a run that died
   between `cp` and `rm`.
 
+## 6b. Blacklist — what it can and cannot key on
+
+A blacklist is not a ban. It is a set of things the game refuses, and every
+entry has to be keyed on something the game can observe from inside its own
+sandbox. That list is short.
+
+| key | can the game see it? | what this build does |
+|---|---|---|
+| package id (`com.foo.bar`) | **yes** — `PackageManager.getInstalledPackages` | **random per CI build** |
+| signing certificate | **yes** — `PackageManager.GET_SIGNATURES` | **new RSA key per CI build** |
+| app label | **yes** | random from a small list |
+| APK bytes / hash | **no** — since Android 11 an app cannot read another app's files | nothing needed |
+| overlay window | partially — not enumerable, only touch/`FLAG_SECURE` side effects | small panel, close it in fights |
+| number of installed apps | yes, but every phone has 60–200 | not a signal on its own |
+| device fingerprint | yes, **server-side** | not this app: a flagged device stays flagged |
+
+So "kena blacklist" almost always means one of two different things:
+
+1. **The app is on a package/certificate list.** Then the fix is identity, and
+   it is already in the build: `.github/workflows/android.yml` generates a
+   random `applicationId`, a random label and a fresh keystore on every run,
+   builds with `-PappId/-PappLabel/-PksFile/...`, and proves the id reached the
+   manifest before publishing. `dist/IDENTITY.txt` says what this build is:
+
+   ```
+   package: com.4f2a91.b7c0de
+   label:   Utilities
+   Owner:   CN=Android, OU=Android, ...
+   SHA256:  <cert digest>
+   ```
+
+   The old package is dead the moment a new build exists. Nothing to clean up
+   beyond `adb uninstall <old id>`.
+
+2. **The device or account is flagged server-side** (cheater lobby, trust
+   score, "blacklist" in the matchmaking sense). No client change fixes that —
+   the verdict was made from behaviour, and it follows the device. What helps:
+   a different device identity, and not repeating whatever produced the flag
+   (snap aim, impossible movement, wallshot, 100% headshot rate).
+
+   Our architecture removes the *client* tells, but it cannot un-flag a device
+   that was already judged. That is why the aim design is smooth-by-default and
+   why ESP comes before aim.
+
+The APK is also optional. Nothing in the read path needs it: the daemon is a
+root process and the settings come over UDP. If a build's identity is burned,
+you can keep using the daemon from the previous install while a new identity is
+built — or not install anything at all and drive it over `adb`.
+
 ## 7. The laptop channel — WiFi or hotspot
 
 Settings are pushed from the laptop, not edited on the phone. One authenticated
@@ -371,9 +420,12 @@ android/
 
 tools/
 ├─ lan_config.py      the laptop side: send settings, watch addresses
+├─ apk_triage.py      inspect any APK with no SDK: manifest, cert, libs, strings
 └─ tests/
    ├─ test_memd.py          drives the real daemon on Linux
-   └─ test_lan_config.py    pins the packet format, runs sender -> listener
+   ├─ test_lan_config.py    pins the packet format, runs sender -> listener
+   ├─ test_java.py          compiles the app's Java against API stubs
+   └─ test_apk_triage.py    the APK inspector against a synthetic APK
 ```
 
 The old iOS tree is not deleted from history: tag `ios-final` on `main` is the

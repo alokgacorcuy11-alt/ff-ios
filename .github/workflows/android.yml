@@ -50,7 +50,24 @@ jobs:
           gradle-version: "8.7"
 
       - name: build apk
-        run: gradle -p android/app assembleDebug --no-daemon --stacktrace
+        run: |
+          set -euo pipefail
+          # A fresh identity per build. The game can only blacklist what it can
+          # name - a package id, a signing certificate, a label - so none of
+          # them survives the next build. IDENTITY.txt says what this one is.
+          ID="com.$(openssl rand -hex 3).$(openssl rand -hex 3)"
+          LABEL=$(shuf -n1 -e Utilities Files Notes Tools Services Backup)
+          PASS=$(openssl rand -hex 16)
+          ALIAS="k$(openssl rand -hex 4)"
+          keytool -genkeypair -keystore ci.jks -storepass "$PASS" -keypass "$PASS" \
+            -alias "$ALIAS" -keyalg RSA -keysize 2048 -validity 10000 \
+            -dname "CN=Android, OU=Android, O=Android, L=Android, ST=Android, C=US"
+          gradle -p android/app assembleDebug --no-daemon --stacktrace \
+            -PappId="$ID" -PappLabel="$LABEL" \
+            -PksFile="$PWD/ci.jks" -PksPass="$PASS" \
+            -PksAlias="$ALIAS" -PksKeyPass="$PASS"
+          echo "$ID" > .appid
+          { echo "package: $ID"; echo "label:   $LABEL"; } > identity.txt
 
       - name: verify apk
         run: |
@@ -59,9 +76,16 @@ jobs:
           test -n "$APK"
           unzip -l "$APK" | grep -q 'assets/memd' || {
             echo "::error::daemon asset missing from the APK"; exit 1; }
+          # the random package id must be the one baked into the manifest
+          unzip -p "$APK" AndroidManifest.xml | grep -aq "$(cat .appid)" || {
+            echo "::error::package id did not reach the manifest"; exit 1; }
+          keytool -printcert -jarfile "$APK" \
+            | grep -E 'Owner:|SHA256:' >> identity.txt
           mkdir -p dist
           cp "$APK" dist/ffmenu.apk
+          cp identity.txt dist/IDENTITY.txt
           cp android/app/app/src/main/assets/memd dist/memd
+          cat dist/IDENTITY.txt
           sha256sum dist/* | tee dist/SHA256SUMS
 
       - uses: actions/upload-artifact@v4

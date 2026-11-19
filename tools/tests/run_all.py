@@ -35,6 +35,8 @@ SUITES = [
     ("lan config    ", HERE / "test_lan_config.py"),
     # compiles the app's Java against API stubs; no Android SDK needed
     ("app java      ", HERE / "test_java.py"),
+    # parses a synthetic APK: binary manifest, DEX strings, libs, signature
+    ("apk triage    ", HERE / "test_apk_triage.py"),
 ]
 
 # The shell suites are not Python, so they need their own runner. They are

@@ -13,6 +13,7 @@ android/daemon/memd.c        root service: find pid, module base, read/write, ma
 android/app/                 the app: su, socket, connect sequence, (next) overlay
 android/offsets/example.json what the reader needs, with the ?? gate
 tools/lan_config.py          laptop side: push settings over the hotspot
+tools/apk_triage.py          inspect any APK with no SDK: manifest, cert, libs
 ```
 
 ## Why external and not injected
@@ -33,7 +34,21 @@ CI builds both artefacts and publishes them to the `build` branch:
 
 ```bash
 curl -fL -o ffmenu.apk https://raw.githubusercontent.com/<owner>/<repo>/build/ffmenu.apk
+curl -fL -O https://raw.githubusercontent.com/<owner>/<repo>/build/IDENTITY.txt
 ```
+
+Every build gets a **new identity** — random package id, random label, fresh
+signing key — so a package that lands on a blacklist is retired with the build
+that carried it. `IDENTITY.txt` is what that build installs as:
+
+```
+package: com.4f2a91.b7c0de
+label:   Utilities
+SHA256:  <signing cert digest>
+```
+
+Installing a new build next to an old one leaves both; `adb uninstall <old id>`
+removes the old one. Local builds keep `com.alokg.ffmenu`.
 
 Locally: `bash android/daemon/build.sh` then `gradle -p android/app assembleDebug`
 (Ndk + SDK + JDK 17).
@@ -86,6 +101,18 @@ list and the troubleshooting table: `android/README.md` §7.
 
 After `STOP` the only thing on the device is the app you installed. Uninstall
 it and there is nothing to find. Full table: `android/README.md` §6.
+
+## Blacklist
+
+A blacklist is not a ban. It is keyed on something the game can observe: the
+package id, the signing certificate, the label. All three are randomised per
+build (§Build), so the list entry dies with the build. The APK's bytes are not
+readable by another app since Android 11, and nothing of ours is inside the
+game anyway.
+
+If the "blacklist" is server-side — cheater lobby, trust score, a flagged
+device — no client change fixes it. That verdict came from behaviour and it
+follows the device. Table and the two cases: `android/README.md` §6b.
 
 ## Detection
 

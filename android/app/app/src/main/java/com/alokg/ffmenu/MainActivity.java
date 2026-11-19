@@ -37,16 +37,17 @@ public class MainActivity extends Activity {
     private static final String GAME = "com.dts.freefireth";
     private static final String GAME_MAX = "com.dts.freefiremax";
     private static final String DAEMON_TMP = "/data/local/tmp/.ffmemd";
+    private static final int REQ_CAPTURE = 0x51;
 
     private final ExecutorService io = Executors.newSingleThreadExecutor();
     private final Handler ui = new Handler(Looper.getMainLooper());
     private final StringBuilder log = new StringBuilder();
 
-    private final Config cfg = new Config();
+    private final Config cfg = Config.SHARED;
     private LanConfig lan;
 
     private TextView out;
-    private Button connect, stop, feed, panel;
+    private Button connect, stop, feed, panel, vision;
     private MemClient client;
     private volatile int gamePid;
     private volatile int daemonPid;
@@ -112,6 +113,26 @@ public class MainActivity extends Activity {
             say(Panel.visible() ? "panel: tampil" : "panel: disembunyikan");
         });
 
+        vision = new Button(this);
+        vision.setText("VISION");
+        vision.setOnClickListener(v -> {
+            if (Vision.running()) {
+                stopService(new Intent(this, VisionService.class));
+                Vision.stop();
+                say(Vision.status());
+                return;
+            }
+            android.media.projection.MediaProjectionManager mpm =
+                    (android.media.projection.MediaProjectionManager)
+                            getSystemService(MEDIA_PROJECTION_SERVICE);
+            if (mpm == null) {
+                say("vision: service unavailable");
+                return;
+            }
+            say("vision: minta izin capture...");
+            startActivityForResult(mpm.createScreenCaptureIntent(), REQ_CAPTURE);
+        });
+
         row.addView(connect, new LinearLayout.LayoutParams(0,
                 LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
         row.addView(stop, new LinearLayout.LayoutParams(0,
@@ -119,6 +140,8 @@ public class MainActivity extends Activity {
         row.addView(feed, new LinearLayout.LayoutParams(0,
                 LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
         row.addView(panel, new LinearLayout.LayoutParams(0,
+                LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
+        row.addView(vision, new LinearLayout.LayoutParams(0,
                 LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
         root.addView(row);
 
@@ -312,6 +335,23 @@ public class MainActivity extends Activity {
             daemonPid = 0;
             say("stopped: daemon gone, no file left");
         });
+    }
+
+    @Override
+    protected void onActivityResult(int request, int result, Intent data) {
+        super.onActivityResult(request, result, data);
+        if (request != REQ_CAPTURE) {
+            return;
+        }
+        if (result != RESULT_OK || data == null) {
+            say("vision: izin capture ditolak");
+            return;
+        }
+        Intent svc = new Intent(this, VisionService.class);
+        svc.putExtra(VisionService.EXTRA_RESULT_CODE, result);
+        svc.putExtra(VisionService.EXTRA_DATA, data);
+        startForegroundService(svc);
+        say("vision: starting - " + Vision.status());
     }
 
     @Override

@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  The only thing this service does is dispatch gestures. It declares no event
+  types it cares about and reads no node tree, because a Unity surface has no
+  nodes worth reading and asking for them would be a second, pointless
+  permission surface.
+-->
+<accessibility-service xmlns:android="http://schemas.android.com/apk/res/android"
+    android:accessibilityEventTypes="typeWindowStateChanged"
+    android:accessibilityFeedbackType="feedbackGeneric"
+    android:canPerformGestures="true"
+    android:notificationTimeout="100"
+    android:description="@string/app_name" />

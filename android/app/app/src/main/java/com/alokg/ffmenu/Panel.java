@@ -42,6 +42,10 @@ final class Panel {
     private TextView status;
     private int dx, dy;
 
+    /** Vision toggles are local to the app - they are not part of the feed. */
+    private static boolean visionBoxes = true;
+    private static boolean visionAssist = true;
+
     private Panel(Activity ctx, Config cfg) {
         this.ctx = ctx;
         this.cfg = cfg;
@@ -161,6 +165,23 @@ final class Panel {
         bool("HIDE FOV", cfg.aimHideFov, () -> cfg.aimHideFov = !cfg.aimHideFov);
         bool("DRAG HS", cfg.dragHeadshot, () -> cfg.dragHeadshot = !cfg.dragHeadshot);
 
+        section("VISION (screen only)");
+        local("BOXES", Vision.running() && visionBoxes, () -> {
+            visionBoxes = !visionBoxes;
+            Vision.setBoxes(visionBoxes);
+        });
+        local("ASSIST", visionAssist, () -> {
+            visionAssist = !visionAssist;
+            Vision.setAssist(visionAssist);
+        });
+        local(com.alokg.ffmenu.vision.AimService.ready()
+                ? "TOUCH: ready" : "TOUCH: tap to enable", false, () -> {
+            if (!com.alokg.ffmenu.vision.AimService.ready()) {
+                ctx.startActivity(new android.content.Intent(
+                        android.provider.Settings.ACTION_ACCESSIBILITY_SETTINGS));
+            }
+        });
+
         section("WEAPON");
         bool("NO RECOIL", cfg.noRecoil, () -> cfg.noRecoil = !cfg.noRecoil);
         bool("NO SPREAD", cfg.noSpread, () -> cfg.noSpread = !cfg.noSpread);
@@ -190,8 +211,22 @@ final class Panel {
         root.addView(close);
     }
 
-    private void section(String name) {
+    private void local(String label, boolean on, Runnable flip) {
         TextView t = new TextView(ctx);
+        t.setText("   " + (on ? "[x] " : "[ ] ") + label);
+        t.setTextColor(on ? ON : OFF);
+        t.setTypeface(Typeface.MONOSPACE);
+        t.setTextSize(12);
+        t.setPadding(10, 10, 10, 10);
+        t.setBackgroundColor(on ? BG_ON : 0x00000000);
+        t.setOnClickListener(v -> {
+            flip.run();
+            rebuild();
+        });
+        root.addView(t);
+    }
+
+    private void section(String name) {        TextView t = new TextView(ctx);
         t.setText("  " + name);
         t.setTextColor(Color.parseColor("#58A6FF"));
         t.setTypeface(Typeface.MONOSPACE, Typeface.BOLD);
@@ -201,8 +236,7 @@ final class Panel {
         root.addView(t);
     }
 
-    private void bool(String label, boolean on, Runnable flip) {
-        TextView t = new TextView(ctx);
+    private void bool(String label, boolean on, Runnable flip) {        TextView t = new TextView(ctx);
         t.setText("   " + (on ? "[x] " : "[ ] ") + label);
         t.setTextColor(on ? ON : OFF);
         t.setTypeface(Typeface.MONOSPACE);

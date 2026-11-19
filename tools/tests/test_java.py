@@ -31,12 +31,18 @@ SOURCES = [
     "com/alokg/ffmenu/LanConfig.java",
     "com/alokg/ffmenu/MainActivity.java",
     "com/alokg/ffmenu/FeedService.java",
+    "com/alokg/ffmenu/VisionService.java",
     "com/alokg/ffmenu/Panel.java",
+    "com/alokg/ffmenu/Vision.java",
     "com/alokg/ffmenu/MemClient.java",
     "com/alokg/ffmenu/Root.java",
     "com/alokg/ffmenu/feed/FeedFormat.java",
     "com/alokg/ffmenu/feed/FeedServer.java",
     "com/alokg/ffmenu/feed/FeedChannel.java",
+    "com/alokg/ffmenu/vision/Detector.java",
+    "com/alokg/ffmenu/vision/Capture.java",
+    "com/alokg/ffmenu/vision/AimService.java",
+    "com/alokg/ffmenu/vision/BoxOverlay.java",
 ]
 
 # Every stub member below exists in the real API with the same signature. If a
@@ -47,8 +53,10 @@ package android.content;
 public class Context {
     public static final String NOTIFICATION_SERVICE = "notification";
     public static final String WINDOW_SERVICE = "window";
+    public static final String MEDIA_PROJECTION_SERVICE = "media_projection";
     public Object getSystemService(String name) { return null; }
     public android.content.res.AssetManager getAssets() { return null; }
+    public android.content.res.Resources getResources() { return null; }
 }
 """,
     "android/provider/Settings.java": """
@@ -56,12 +64,17 @@ package android.provider;
 public final class Settings {
     public static final String ACTION_MANAGE_OVERLAY_PERMISSION =
             "android.settings.action.MANAGE_OVERLAY_PERMISSION";
+    public static final String ACTION_ACCESSIBILITY_SETTINGS =
+            "android.settings.ACCESSIBILITY_SETTINGS";
     public static boolean canDrawOverlays(android.content.Context c) { return true; }
 }
 """,
     "android/graphics/PixelFormat.java": """
 package android.graphics;
-public class PixelFormat { public static final int TRANSLUCENT = -3; }
+public class PixelFormat {
+    public static final int TRANSLUCENT = -3;
+    public static final int RGBA_8888 = 1;
+}
 """,
     "android/view/MotionEvent.java": """
 package android.view;
@@ -85,6 +98,8 @@ public interface WindowManager {
         public static final int MATCH_PARENT = -1;
         public static final int TYPE_APPLICATION_OVERLAY = 2038;
         public static final int FLAG_NOT_FOCUSABLE = 8;
+        public static final int FLAG_NOT_TOUCHABLE = 16;
+        public static final int FLAG_LAYOUT_IN_SCREEN = 256;
         public static final int FLAG_LAYOUT_NO_LIMITS = 512;
         public int gravity;
         public int x;
@@ -99,6 +114,11 @@ public class Intent {
     public Intent() {}
     public Intent(String action) {}
     public Intent(Context c, Class<?> cls) {}
+    public Intent putExtra(String k, int v) { return this; }
+    public Intent putExtra(String k, String v) { return this; }
+    public Intent putExtra(String k, Intent v) { return this; }
+    public int getIntExtra(String k, int d) { return d; }
+    public Intent getParcelableExtra(String k) { return null; }
 }
 """,
     "android/content/ComponentName.java": """
@@ -141,6 +161,8 @@ public class Service extends android.content.Context {
     public void onDestroy() {}
     public android.os.IBinder onBind(android.content.Intent i) { return null; }
     public void startForeground(int id, Notification n) {}
+    public void stopSelf() {}
+    public void stopSelf(int startId) {}
 }
 """,
     "android/os/IBinder.java": """
@@ -153,14 +175,156 @@ public final class R {
     public static final class drawable { public static final int stat_notify_sync = 1; }
 }
 """,
+    "android/util/DisplayMetrics.java": """
+package android.util;
+public class DisplayMetrics {
+    public float density;
+    public int widthPixels;
+    public int heightPixels;
+    public int densityDpi;
+}
+""",
+    "android/os/HandlerThread.java": """
+package android.os;
+public class HandlerThread extends Thread {
+    public HandlerThread(String name) {}
+    public void start() {}
+    public Looper getLooper() { return null; }
+    public boolean quitSafely() { return true; }
+}
+""",
+    "android/graphics/Path.java": """
+package android.graphics;
+public class Path {
+    public void moveTo(float x, float y) {}
+    public void lineTo(float x, float y) {}
+    public void close() {}
+}
+""",
+    "android/graphics/Canvas.java": """
+package android.graphics;
+public class Canvas {
+    public void drawRect(float l, float t, float r, float b, Paint p) {}
+    public void drawLine(float a, float b, float c, float d, Paint p) {}
+    public void drawText(String s, float x, float y, Paint p) {}
+    public int getWidth() { return 0; }
+    public int getHeight() { return 0; }
+}
+""",
+    "android/graphics/Paint.java": """
+package android.graphics;
+public class Paint {
+    public enum Style { FILL, STROKE, FILL_AND_STROKE }
+    public void setStyle(Style s) {}
+    public void setStrokeWidth(float w) {}
+    public void setAntiAlias(boolean a) {}
+    public void setColor(int c) {}
+    public void setTextSize(float s) {}
+}
+""",
+    "android/view/accessibility/AccessibilityEvent.java": """
+package android.view.accessibility;
+public class AccessibilityEvent {}
+""",
+    "android/accessibilityservice/AccessibilityService.java": """
+package android.accessibilityservice;
+public abstract class AccessibilityService extends android.content.Context {
+    protected void onServiceConnected() {}
+    public void onAccessibilityEvent(android.view.accessibility.AccessibilityEvent e) {}
+    public void onInterrupt() {}
+    public void onDestroy() {}
+    public boolean dispatchGesture(GestureDescription g,
+            GestureResultCallback c, android.os.Handler h) { return true; }
+    public static class GestureResultCallback {}
+}
+""",
+    "android/accessibilityservice/GestureDescription.java": """
+package android.accessibilityservice;
+public class GestureDescription {
+    public static class StrokeDescription {
+        public StrokeDescription(android.graphics.Path p, long start, long duration) {}
+    }
+    public static class Builder {
+        public Builder addStroke(StrokeDescription s) { return this; }
+        public GestureDescription build() { return new GestureDescription(); }
+    }
+    public static int getMaxStrokeCount() { return 10; }
+    public static long getMaxGestureDuration() { return 60000; }
+}
+""",
+    "android/hardware/display/DisplayManager.java": """
+package android.hardware.display;
+public final class DisplayManager {
+    public static final int VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR = 16;
+}
+""",
+    "android/hardware/display/VirtualDisplay.java": """
+package android.hardware.display;
+public class VirtualDisplay {
+    public void release() {}
+}
+""",
+    "android/media/projection/MediaProjection.java": """
+package android.media.projection;
+public final class MediaProjection {
+    public android.hardware.display.VirtualDisplay createVirtualDisplay(String name,
+            int w, int h, int dpi, int flags,
+            android.view.Surface surface, Callback cb, android.os.Handler handler) {
+        return null;
+    }
+    public void stop() {}
+    public static abstract class Callback {}
+}
+""",
+    "android/media/projection/MediaProjectionManager.java": """
+package android.media.projection;
+public final class MediaProjectionManager {
+    public android.content.Intent createScreenCaptureIntent() { return null; }
+    public MediaProjection getMediaProjection(int resultCode, android.content.Intent data) {
+        return null;
+    }
+}
+""",
+    "android/view/Surface.java": """
+package android.view;
+public class Surface {}
+""",
+    "android/media/Image.java": """
+package android.media;
+public abstract class Image implements AutoCloseable {
+    public abstract Plane[] getPlanes();
+    public abstract void close();
+    public abstract static class Plane {
+        public abstract java.nio.ByteBuffer getBuffer();
+        public abstract int getRowStride();
+        public abstract int getPixelStride();
+    }
+}
+""",
+    "android/media/ImageReader.java": """
+package android.media;
+public class ImageReader implements AutoCloseable {
+    public interface OnImageAvailableListener { void onImageAvailable(ImageReader r); }
+    public static ImageReader newInstance(int w, int h, int format, int max) { return null; }
+    public void setOnImageAvailableListener(OnImageAvailableListener l, android.os.Handler h) {}
+    public Image acquireLatestImage() { return null; }
+    public android.view.Surface getSurface() { return null; }
+    public void close() {}
+}
+""",
     "android/app/Activity.java": """
 package android.app;
 public class Activity extends android.content.Context {
+    public static final int RESULT_OK = -1;
+    public static final int RESULT_CANCELED = 0;
     protected void onCreate(android.os.Bundle b) {}
     protected void onDestroy() {}
+    protected void onActivityResult(int req, int res, android.content.Intent data) {}
     public void setContentView(android.view.View v) {}
     public android.content.ComponentName startService(android.content.Intent i) { return null; }
+    public void startForegroundService(android.content.Intent i) {}
     public void startActivity(android.content.Intent i) {}
+    public void startActivityForResult(android.content.Intent i, int req) {}
     public boolean stopService(android.content.Intent i) { return true; }
     public android.content.pm.ApplicationInfo getApplicationInfo() { return null; }
     public java.io.File getFilesDir() { return null; }
@@ -184,10 +348,6 @@ public class Resources {
     public android.util.DisplayMetrics getDisplayMetrics() { return null; }
 }
 """,
-    "android/util/DisplayMetrics.java": """
-package android.util;
-public class DisplayMetrics { public float density; }
-""",
     "android/os/Bundle.java": """
 package android.os;
 public class Bundle {}
@@ -206,12 +366,16 @@ public class Handler {
     "android/view/View.java": """
 package android.view;
 public class View {
+    public View() {}
+    public View(android.content.Context c) {}
     public void setBackgroundColor(int c) {}
     public void setPadding(int a, int b, int c, int d) {}
     public void setEnabled(boolean e) {}
     public void setVisibility(int v) {}
     public void setOnClickListener(OnClickListener l) {}
     public void setOnTouchListener(OnTouchListener l) {}
+    public void postInvalidate() {}
+    protected void onDraw(android.graphics.Canvas c) {}
     public int getHeight() { return 0; }
     public void scrollTo(int x, int y) {}
     public interface OnClickListener { void onClick(View v); }

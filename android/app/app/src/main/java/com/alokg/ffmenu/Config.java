@@ -21,6 +21,11 @@ import java.util.List;
  */
 final class Config {
 
+    /** One config for the whole app: the panel, the laptop packets and the
+     *  vision loop all read the same object, so a toggle in one is a toggle in
+     *  all of them. */
+    static final Config SHARED = new Config();
+
     /**
      * Shared secret. Must be the same bytes in tools/lan_config.py.
      * Change it - anyone on the same hotspot who knows it can drive the app.

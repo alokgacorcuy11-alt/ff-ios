@@ -45,6 +45,8 @@ SUITES = [
     ("forge         ", HERE / "test_payload_forge.py"),
     # python forge <-> java transport, spoken over a real socket
     ("feed          ", HERE / "test_feed.py"),
+    # the frame detector, against frames whose answer is known
+    ("vision        ", HERE / "test_vision.py"),
 ]
 
 # The shell suites are not Python, so they need their own runner. They are

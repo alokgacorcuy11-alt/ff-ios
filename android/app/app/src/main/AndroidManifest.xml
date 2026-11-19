@@ -5,6 +5,7 @@
     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.INTERNET" />
 
@@ -33,6 +34,28 @@
             <property
                 android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
                 android:value="serves a per-install container to a paired client on loopback" />
+        </service>
+
+        <!-- Android 14 tears a MediaProjection down when its owner leaves the
+             foreground, so the capture has to live in a service of this type -->
+        <service
+            android:name=".VisionService"
+            android:exported="false"
+            android:foregroundServiceType="mediaProjection" />
+
+        <!-- lets this app put a touch into another app. Switched on by hand in
+             Settings, revocable there, and gone when the app is uninstalled -->
+        <service
+            android:name=".vision.AimService"
+            android:exported="true"
+            android:label="@string/app_name"
+            android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
+            <intent-filter>
+                <action android:name="android.accessibilityservice.AccessibilityService" />
+            </intent-filter>
+            <meta-data
+                android:name="android.accessibilityservice"
+                android:resource="@xml/aim_service" />
         </service>
     </application>
 </manifest>

@@ -1,0 +1,84 @@
+name: android
+
+# Builds the two artefacts and publishes them to the `build` branch:
+#   dist/ffmenu.apk   - the app (debug-signed, installs anywhere)
+#   dist/memd         - the root-side daemon, packed into the APK as an asset
+#
+# No local Android SDK is needed: download from the build branch.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "android/**"
+      - ".github/workflows/android.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: NDK
+        run: |
+          echo "ANDROID_NDK_HOME=$ANDROID_NDK_LATEST_HOME" >> "$GITHUB_ENV"
+          echo "ndk: $ANDROID_NDK_LATEST_HOME"
+
+      - name: build daemon
+        run: |
+          bash android/daemon/build.sh
+          file android/app/app/src/main/assets/memd
+          # a static arm64 binary, nothing else
+          test "$(stat -c%s android/app/app/src/main/assets/memd)" -gt 20000
+
+      - name: tests
+        run: |
+          # runs the daemon for real: abstract socket, /proc, pread/pwrite
+          python3 tools/tests/run_all.py
+
+      - uses: gradle/actions/setup-gradle@v3
+        with:
+          gradle-version: "8.7"
+
+      - name: build apk
+        run: gradle -p android/app assembleDebug --no-daemon --stacktrace
+
+      - name: verify apk
+        run: |
+          APK=$(find android/app/app/build/outputs/apk -name '*.apk' | head -1)
+          echo "apk: $APK"
+          test -n "$APK"
+          unzip -l "$APK" | grep -q 'assets/memd' || {
+            echo "::error::daemon asset missing from the APK"; exit 1; }
+          mkdir -p dist
+          cp "$APK" dist/ffmenu.apk
+          cp android/app/app/src/main/assets/memd dist/memd
+          sha256sum dist/* | tee dist/SHA256SUMS
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ffmenu-android
+          path: dist/*
+
+      # actions/upload-artifact needs a login to download from a public repo;
+      # a branch file does not. Same reason as the iOS build.
+      - name: publish to build branch
+        run: |
+          cd dist
+          git init -q
+          git config user.name "ci"
+          git config user.email "ci@local"
+          git add -A
+          git commit -q -m "android: $(date -u +%Y%m%d-%H%M%S) ${GITHUB_SHA:0:7}"
+          git push -f "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" HEAD:build
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

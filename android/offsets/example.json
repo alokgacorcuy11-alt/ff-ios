@@ -1,0 +1,59 @@
+{
+  "_": "Every value marked ?? must come from Il2CppDumper (or tools/metadata_structure.py) on the exact build you are reading. Nothing here is a guess: the reader refuses to start while any ?? remains, and says which key it is waiting for.",
+
+  "version": "1.132.1",
+  "module": "libil2cpp.so",
+
+  "_container": "The object that holds the player list. `static_offset` is the RVA of the static field that points at it (script.json: Address). The reader does base + static_offset, reads a pointer, and that is the container object.",
+  "container": {
+    "class": "??",
+    "static_offset": "??",
+    "list_offset": "??"
+  },
+
+  "_list": "The list object itself: a managed array (Il2CppArray) or a List<T>. For an array, data starts at array_object_header_size and count is at the array length offset - both are constants in the runtime, not per-build.",
+  "list": {
+    "kind": "array",
+    "element_size": 8
+  },
+
+  "_player": "Offsets are from the start of the Player object. position is a Vector3 field (12 bytes). If the game only exposes a Transform, set transform_offset instead and position will be read from Transform + transform_pos_offset.",
+  "player": {
+    "class": "??",
+    "size": "??",
+    "position_offset": "??",
+    "health_offset": "??",
+    "max_health_offset": "??",
+    "team_offset": "??",
+    "name_offset": "??",
+    "is_local_offset": "??",
+    "transform_offset": "??",
+    "transform_pos_offset": "??"
+  },
+
+  "_camera": "Camera.main is a static. The two matrices are fields on the camera object. worldToScreen is recomputed from them; nothing in the game is called.",
+  "camera": {
+    "class": "UnityEngine.Camera",
+    "static_offset": "??",
+    "view_matrix_offset": "??",
+    "projection_matrix_offset": "??",
+    "fov_offset": "??"
+  },
+
+  "esp": {
+    "box": true,
+    "name": true,
+    "distance": true,
+    "health_bar": true,
+    "max_distance": 200.0,
+    "team_filter": true
+  },
+
+  "aim": {
+    "enabled": false,
+    "bone": "chest",
+    "smooth": 8,
+    "fov": 90,
+    "max_distance": 150.0
+  }
+}

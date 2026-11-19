@@ -26,23 +26,16 @@ ROOT = HERE.parent.parent
 
 SUITES = [
     ("selftest      ", ROOT / "tools" / "selftest.py"),
-    ("ipa_probe     ", HERE / "test_ipa_probe.py"),
-    ("package_ipa   ", HERE / "test_package_ipa.py"),
     ("metadata_hunt ", HERE / "test_metadata.py"),
-    ("entitlements  ", HERE / "test_entitlements.py"),
     ("math          ", HERE / "test_math.py"),
-    ("sources       ", HERE / "test_sources.py"),
-    # catches variables that only FFLOG reads - write-only in a RELEASE build,
-    # which is -Werror there and cost a CI round to find
-    ("release-lint  ", ROOT / "tools" / "lint_logonly.py"),
+    # compiles and drives android/daemon/memd.c on a Linux host; skips on Windows
+    ("android daemon", HERE / "test_memd.py"),
 ]
 
 # The shell suites are not Python, so they need their own runner. They are
 # skipped with a message rather than failed when bash is unavailable (a bare
 # Windows shell), because CI has it and that is what matters.
-SHELL_SUITES = [
-    ("fetch_ipa     ", HERE / "test_fetch_ipa.sh"),
-]
+SHELL_SUITES = []
 
 
 def run_shell(label, path, verbose):

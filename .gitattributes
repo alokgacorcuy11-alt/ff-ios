@@ -13,7 +13,10 @@
 *.py    text eol=lf
 *.m     text eol=lf
 *.h     text eol=lf
+*.c     text eol=lf
 *.x     text eol=lf
+*.java  text eol=lf
+*.kts   text eol=lf
 *.yml   text eol=lf
 *.yaml  text eol=lf
 *.json  text eol=lf

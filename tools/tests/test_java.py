@@ -31,8 +31,10 @@ SOURCES = [
     "com/alokg/ffmenu/MainActivity.java",
     "com/alokg/ffmenu/MemClient.java",
     "com/alokg/ffmenu/Root.java",
+    "com/alokg/ffmenu/FeedService.java",
     "com/alokg/ffmenu/feed/FeedFormat.java",
     "com/alokg/ffmenu/feed/FeedServer.java",
+    "com/alokg/ffmenu/feed/FeedChannel.java",
 ]
 
 # Every stub member below exists in the real API with the same signature. If a
@@ -40,7 +42,70 @@ SOURCES = [
 STUBS = {
     "android/content/Context.java": """
 package android.content;
-public class Context {}
+public class Context {
+    public static final String NOTIFICATION_SERVICE = "notification";
+    public Object getSystemService(String name) { return null; }
+    public android.content.res.AssetManager getAssets() { return null; }
+}
+""",
+    "android/content/Intent.java": """
+package android.content;
+public class Intent {
+    public Intent() {}
+    public Intent(Context c, Class<?> cls) {}
+}
+""",
+    "android/content/ComponentName.java": """
+package android.content;
+public class ComponentName { public ComponentName(String p, String c) {} }
+""",
+    "android/app/Notification.java": """
+package android.app;
+public class Notification {
+    public static class Builder {
+        public Builder(android.content.Context c, String channel) {}
+        public Builder setContentTitle(CharSequence s) { return this; }
+        public Builder setContentText(CharSequence s) { return this; }
+        public Builder setSmallIcon(int id) { return this; }
+        public Builder setOngoing(boolean b) { return this; }
+        public Notification build() { return null; }
+    }
+}
+""",
+    "android/app/NotificationChannel.java": """
+package android.app;
+public class NotificationChannel {
+    public NotificationChannel(String id, CharSequence name, int importance) {}
+}
+""",
+    "android/app/NotificationManager.java": """
+package android.app;
+public class NotificationManager {
+    public static final int IMPORTANCE_LOW = 2;
+    public NotificationChannel getNotificationChannel(String id) { return null; }
+    public void createNotificationChannel(NotificationChannel c) {}
+}
+""",
+    "android/app/Service.java": """
+package android.app;
+public class Service extends android.content.Context {
+    public static final int START_NOT_STICKY = 2;
+    public void onCreate() {}
+    public int onStartCommand(android.content.Intent i, int flags, int startId) { return 0; }
+    public void onDestroy() {}
+    public android.os.IBinder onBind(android.content.Intent i) { return null; }
+    public void startForeground(int id, Notification n) {}
+}
+""",
+    "android/os/IBinder.java": """
+package android.os;
+public interface IBinder {}
+""",
+    "android/R.java": """
+package android;
+public final class R {
+    public static final class drawable { public static final int stat_notify_sync = 1; }
+}
 """,
     "android/app/Activity.java": """
 package android.app;
@@ -48,6 +113,8 @@ public class Activity extends android.content.Context {
     protected void onCreate(android.os.Bundle b) {}
     protected void onDestroy() {}
     public void setContentView(android.view.View v) {}
+    public android.content.ComponentName startService(android.content.Intent i) { return null; }
+    public boolean stopService(android.content.Intent i) { return true; }
     public android.content.pm.ApplicationInfo getApplicationInfo() { return null; }
     public java.io.File getFilesDir() { return null; }
     public android.content.res.AssetManager getAssets() { return null; }

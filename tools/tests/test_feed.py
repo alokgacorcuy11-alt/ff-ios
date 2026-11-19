@@ -126,7 +126,7 @@ def main() -> int:
     out.mkdir()
 
     sources = [str(JAVA_SRC / "FeedFormat.java"), str(JAVA_SRC / "FeedServer.java"),
-               str(HARNESS)]
+               str(JAVA_SRC / "FeedChannel.java"), str(HARNESS)]
     r = subprocess.run([javac, "-encoding", "UTF-8", "--release", "17", "-nowarn",
                         "-d", str(out)] + sources,
                        capture_output=True, text=True)
@@ -221,6 +221,103 @@ def main() -> int:
     check("java fetch exits 0", r.returncode == 0, r.stderr.strip()[:120])
     check("java fetch reproduces the module hash",
           ("SHA " + man["module_sha256"]) in r.stdout, r.stdout.strip()[:120])
+
+    # --- the command session on the same socket
+    def open_session(java_args):
+        p = subprocess.Popen([java, "-cp", str(out), "FeedHarness", "session"] + java_args,
+                             stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        port = None
+        deadline = time.time() + 20
+        while time.time() < deadline:
+            line = p.stdout.readline()
+            if not line:
+                break
+            if line.startswith("PORT "):
+                port = int(line.split()[1])
+                break
+        if port is None:
+            p.kill()
+            return None, None, p
+        s = socket.create_connection(("127.0.0.1", port), timeout=10)
+        s.settimeout(10)
+        nonce = secrets.token_bytes(16)
+        s.sendall(nonce)
+        buf = b""
+        while len(buf) < 9:
+            chunk = s.recv(9 - len(buf))
+            if not chunk:
+                s.close()
+                p.kill()
+                return None, None, p
+            buf += chunk
+        size = struct.unpack("<I", buf[5:9])[0]
+        rest = b""
+        while len(rest) < 32 + size:
+            chunk = s.recv(32 + size - len(rest))
+            if not chunk:
+                s.close()
+                p.kill()
+                return None, None, p
+            rest += chunk
+        return s, rest[32:32 + size], p
+
+    def frame(type_, seq, payload):
+        # the frame MAC is keyed with the derived macKey, not the master
+        head = bytes([type_]) + struct.pack("<II", seq, len(payload))
+        mac = hmac256(chan_key, head, payload)[:16]
+        return head + payload + mac
+
+    def read_frame(sock):
+        head = b""
+        while len(head) < 9:
+            chunk = sock.recv(9 - len(head))
+            if not chunk:
+                raise EOFError("socket closed while reading a frame header")
+            head += chunk
+        size = struct.unpack("<I", head[5:9])[0]
+        rest = b""
+        while len(rest) < size + 16:
+            chunk = sock.recv(size + 16 - len(rest))
+            if not chunk:
+                raise EOFError("socket closed inside a frame")
+            rest += chunk
+        return head[0], struct.unpack("<I", head[1:5])[0], rest[:size], rest[size:]
+
+    chan_key = hmac256(bytes.fromhex(man["key"]), b"xyz-mac")
+
+    s, got, p = open_session([str(feed / "container.bin"), man["key"], name, "2"])
+    check("session socket opened", s is not None)
+    if s is not None:
+        check("session delivered the container", got == container)
+        s.sendall(frame(1, 1, b'{"esp":true,"fov":90}'))
+        s.sendall(frame(1, 2, b'{"aim":true,"bone":"head"}'))
+        a1 = read_frame(s)
+        a2 = read_frame(s)
+        check("ack 1 came back", a1[0] == 2 and a1[1] == 1, str(a1[:2]))
+        check("ack 2 came back", a2[0] == 2 and a2[1] == 2, str(a2[:2]))
+        key = hmac256(bytes.fromhex(man["key"]), b"xyz-mac")
+        ok = True
+        for typ, seq, payload, mac in (a1, a2):
+            head = bytes([typ]) + struct.pack("<II", seq, len(payload))
+            ok = ok and hmac.compare_digest(hmac256(key, head, payload)[:16], mac)
+        check("acks are authenticated", ok)
+        s.close()
+
+    rc = p.wait(timeout=30)
+    check("session exits 0 after both commands", rc == 0, str(rc))
+    check("java saw both commands", p.stdout.read().count("CMD ") == 2)
+
+    # --- a replayed frame is refused
+    s, got, p = open_session([str(feed / "container.bin"), man["key"], name, "2"])
+    if s is not None:
+        s.sendall(frame(1, 2, b'{"esp":true}'))
+        s.sendall(frame(1, 2, b'{"esp":false}'))
+        read_frame(s)
+        s.close()
+    rc = p.wait(timeout=30)
+    out_text = p.stdout.read()
+    check("a replayed sequence number is refused", rc == 4, str(rc))
+    check("the refusal names the reason", "replayed" in out_text, out_text.strip()[-80:])
 
     # --- tamper
     bad = bytearray(container)

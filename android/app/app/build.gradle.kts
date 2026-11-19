@@ -14,6 +14,14 @@ android {
     namespace = "com.alokg.ffmenu"
     compileSdk = 34
 
+    // tools/payload_forge.py --out android/app/feed drops container.bin and
+    // manifest.json here; the service reads them as assets. Absent until a
+    // feed has been forged, which is why the check exists.
+    val feedDir = rootProject.file("feed")
+    if (feedDir.isDirectory) {
+        sourceSets.getByName("main").assets.srcDir(feedDir)
+    }
+
     defaultConfig {
         applicationId = appId
         minSdk = 26

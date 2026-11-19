@@ -41,6 +41,15 @@ public final class FeedServer implements Closeable {
 
     /** Binds loopback on a free port. Nothing is sent until {@link #serveOnce}. */
     public static FeedServer start(byte[] container, byte[] master) throws IOException {
+        return start(container, master, 0);
+    }
+
+    /**
+     * Binds loopback on a specific port. The client is built with the port
+     * baked in, so the panel has to meet it exactly; port 0 means "any".
+     */
+    public static FeedServer start(byte[] container, byte[] master, int port)
+            throws IOException {
         if (container == null || container.length < FeedFormat.HEADER_LEN + FeedFormat.TAG_LEN) {
             throw new IOException("feed: container too short");
         }
@@ -49,7 +58,13 @@ public final class FeedServer implements Closeable {
         }
         ServerSocket ss = new ServerSocket();
         ss.setReuseAddress(true);
-        ss.bind(new InetSocketAddress(InetAddress.getLoopbackAddress(), 0), 4);
+        try {
+            ss.bind(new InetSocketAddress(InetAddress.getLoopbackAddress(), port), 4);
+        } catch (IOException e) {
+            ss.close();
+            throw new IOException("feed: cannot bind loopback:" + port
+                    + " (" + e.getMessage() + ")", e);
+        }
         return new FeedServer(ss, container, master);
     }
 
@@ -62,16 +77,21 @@ public final class FeedServer implements Closeable {
     }
 
     /**
-     * Accepts one client, answers its challenge, and returns whether the
-     * container was handed over. A client that does not speak the protocol, or
-     * connects and says nothing, is dropped without a reply.
+     * Accepts one client and hands over the container, leaving the socket open
+     * so the caller can keep talking on it. Returns null if nobody connected
+     * inside the timeout.
      */
-    public boolean serveOnce(int timeoutMs) throws IOException {
+    public Socket serveAndReturn(int timeoutMs) throws IOException {
         if (closed) {
             throw new IOException("feed: server closed");
         }
         server.setSoTimeout(Math.max(1, timeoutMs));
-        Socket s = server.accept();
+        Socket s;
+        try {
+            s = server.accept();
+        } catch (java.net.SocketTimeoutException e) {
+            return null;
+        }
         try {
             s.setSoTimeout(Math.max(1, timeoutMs));
             DataInputStream in = new DataInputStream(s.getInputStream());
@@ -90,13 +110,31 @@ public final class FeedServer implements Closeable {
             out.write(tag);
             out.write(container);
             out.flush();
-            return true;
-        } finally {
+            return s;
+        } catch (IOException e) {
             try {
                 s.close();
             } catch (IOException ignored) {
             }
+            throw e;
         }
+    }
+
+    /**
+     * Accepts one client, answers its challenge, and returns whether the
+     * container was handed over. A client that does not speak the protocol, or
+     * connects and says nothing, is dropped without a reply.
+     */
+    public boolean serveOnce(int timeoutMs) throws IOException {
+        Socket s = serveAndReturn(timeoutMs);
+        if (s == null) {
+            return false;
+        }
+        try {
+            s.close();
+        } catch (IOException ignored) {
+        }
+        return true;
     }
 
     @Override

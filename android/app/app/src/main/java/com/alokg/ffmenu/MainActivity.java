@@ -1,6 +1,7 @@
 package com.alokg.ffmenu;
 
 import android.app.Activity;
+import android.content.Intent;
 import android.graphics.Color;
 import android.graphics.Typeface;
 import android.os.Bundle;
@@ -45,7 +46,7 @@ public class MainActivity extends Activity {
     private LanConfig lan;
 
     private TextView out;
-    private Button connect, stop;
+    private Button connect, stop, feed;
     private MemClient client;
     private volatile int gamePid;
     private volatile int daemonPid;
@@ -91,9 +92,18 @@ public class MainActivity extends Activity {
         stop.setText("STOP");
         stop.setOnClickListener(v -> stopAll());
 
+        feed = new Button(this);
+        feed.setText("FEED");
+        feed.setOnClickListener(v -> {
+            startService(new Intent(this, FeedService.class));
+            say(FeedService.status());
+        });
+
         row.addView(connect, new LinearLayout.LayoutParams(0,
                 LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
         row.addView(stop, new LinearLayout.LayoutParams(0,
+                LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
+        row.addView(feed, new LinearLayout.LayoutParams(0,
                 LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
         root.addView(row);
 

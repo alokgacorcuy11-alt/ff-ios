@@ -580,10 +580,34 @@ are handled:
 | another app squats the port and answers our client | the response is `HMAC(macKey, challenge \| container)` and the client checks it before decrypting |
 | a stale container from an older install is replayed | the install name is inside the tag |
 
-`tools/tests/test_feed.py` compiles the two Java classes and speaks the
-protocol to them from Python - challenge, response, MAC check, decode - then
-serves from Python and makes Java's `fetch` pull it. If the two sides ever
-drift, that test fails instead of the module silently not arriving.
+`tools/tests/test_feed.py` compiles the Java classes and speaks the protocol to
+them from Python - challenge, response, MAC check, decode - then serves from
+Python and makes Java's `fetch` pull it. If the two sides ever drift, that test
+fails instead of the module silently not arriving.
+
+### Commands ride the same socket
+
+The container goes over once. Everything after that - every toggle, every
+slider - uses the connection that is already open:
+
+```
+frame = type(1) | seq(u32le) | len(u32le) | payload | mac(16)
+mac   = HMAC-SHA256(macKey, type | seq | len | payload)[0:16]
+```
+
+`seq` increases strictly in each direction and is checked, so a toggle cannot
+be replayed by another app watching loopback. No command file, no second port,
+no second artefact.
+
+In the app this is `FeedService`: reads `container.bin` and `manifest.json` from
+assets, binds the port the client was built with, hands the container over,
+then keeps the socket and pushes whatever the panel sends. It is a foreground
+service because the panel is backgrounded the moment Free Fire comes up.
+
+```bash
+python tools/payload_forge.py --module out/libxyz.so --out android/app/feed
+# build.gradle.kts picks the directory up as an asset source if it exists
+```
 
 ### Against XYZ, measured
 
@@ -635,6 +659,10 @@ android/
 │        ├─ assets/memd          (built, not committed)
 │        └─ java/com/alokg/ffmenu/
 │           ├─ MainActivity.java  the stage-1 UI and the connect sequence
+│           ├─ FeedService.java    foreground loopback feed: deliver, then push
+│           ├─ feed/FeedFormat.java   container format + the client-side fetch
+│           ├─ feed/FeedServer.java   delivers once, keeps the socket
+│           ├─ feed/FeedChannel.java  authenticated, sequence-numbered frames
 │           ├─ Root.java          su wrapper, unlinks the binary after spawn
 │           ├─ MemClient.java     the wire protocol (little-endian)
 │           ├─ Config.java        live settings + the shared key

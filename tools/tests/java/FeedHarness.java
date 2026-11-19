@@ -38,6 +38,42 @@ public final class FeedHarness {
         } else if ("fetch".equals(mode)) {
             report(FeedFormat.fetch("127.0.0.1", Integer.parseInt(args[4]), master, name, 8000));
 
+        } else if ("session".equals(mode)) {
+            int count = Integer.parseInt(args[4]);
+            FeedServer s = FeedServer.start(container, master, 0);
+            System.out.println("PORT " + s.port());
+            System.out.flush();
+            java.net.Socket sock = s.serveAndReturn(15000);
+            if (sock == null) {
+                System.out.println("TIMEOUT");
+                System.exit(3);
+            }
+            System.out.println("SERVED");
+            System.out.flush();
+            com.alokg.ffmenu.feed.FeedChannel ch =
+                    com.alokg.ffmenu.feed.FeedChannel.attach(sock, master);
+            try {
+                for (int i = 0; i < count; i++) {
+                    String cmd = ch.receive(8000);
+                    if (cmd == null) {
+                        System.out.println("TIMEOUT");
+                        System.exit(3);
+                    }
+                    System.out.println("CMD " + cmd);
+                    System.out.flush();
+                    ch.ack("ok");
+                }
+            } catch (Exception e) {
+                System.out.println("ERR " + e.getMessage());
+                System.out.flush();
+                ch.close();
+                s.close();
+                System.exit(4);
+            }
+            ch.close();
+            s.close();
+            System.out.println("DONE");
+
         } else {
             System.out.println("UNKNOWN " + mode);
             System.exit(2);

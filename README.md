@@ -39,11 +39,15 @@ curl -fL -O https://raw.githubusercontent.com/<owner>/<repo>/build/IDENTITY.txt
 
 Every build gets a **new identity** — random package id, random label, fresh
 signing key — so a package that lands on a blacklist is retired with the build
-that carried it. `IDENTITY.txt` is what that build installs as:
+that carried it. `IDENTITY.txt` is read back out of the APK by
+`tools/verify_build.py`, not copied from what the build was told to produce:
 
 ```
-package: com.4f2a91.b7c0de
+package: com.a4f2a9.b7c0de
 label:   Utilities
+apk:     <sha256 of the apk>
+sdk:     26 -> 34
+Owner:   CN=Android, OU=Android, ...
 SHA256:  <signing cert digest>
 ```
 

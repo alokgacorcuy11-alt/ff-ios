@@ -37,6 +37,8 @@ SUITES = [
     ("app java      ", HERE / "test_java.py"),
     # parses a synthetic APK: binary manifest, DEX strings, libs, signature
     ("apk triage    ", HERE / "test_apk_triage.py"),
+    # the publish gate: a built APK must carry the identity it was asked for
+    ("verify build  ", HERE / "test_verify_build.py"),
 ]
 
 # The shell suites are not Python, so they need their own runner. They are

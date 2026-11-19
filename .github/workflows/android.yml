@@ -70,23 +70,25 @@ jobs:
             -PksFile="$PWD/ci.jks" -PksPass="$PASS" \
             -PksAlias="$ALIAS" -PksKeyPass="$PASS"
           echo "$ID" > .appid
-          { echo "package: $ID"; echo "label:   $LABEL"; } > identity.txt
+          echo "$LABEL" > .applabel
 
       - name: verify apk
         run: |
+          set -euo pipefail
           APK=$(find android/app/app/build/outputs/apk -name '*.apk' | head -1)
           echo "apk: $APK"
           test -n "$APK"
-          unzip -l "$APK" | grep -q 'assets/memd' || {
-            echo "::error::daemon asset missing from the APK"; exit 1; }
-          # the random package id must be the one baked into the manifest
-          unzip -p "$APK" AndroidManifest.xml | grep -aq "$(cat .appid)" || {
-            echo "::error::package id did not reach the manifest"; exit 1; }
-          keytool -printcert -jarfile "$APK" 2>/dev/null \
-            | grep -E 'Owner:|SHA256:' >> identity.txt || true
           mkdir -p dist
           cp "$APK" dist/ffmenu.apk
-          cp identity.txt dist/IDENTITY.txt
+          # The artefact has to carry the identity the build asked for. This
+          # reads the APK back - binary manifest, resources.arsc, signing
+          # certificate - so a build that quietly kept the old package id
+          # fails here instead of being published with a lie in IDENTITY.txt.
+          python3 tools/verify_build.py \
+            --apk dist/ffmenu.apk \
+            --package "$(cat .appid)" \
+            --label "$(cat .applabel)" \
+            --identity dist/IDENTITY.txt
           cp android/app/app/src/main/assets/memd dist/memd
           cat dist/IDENTITY.txt
           sha256sum dist/* | tee dist/SHA256SUMS

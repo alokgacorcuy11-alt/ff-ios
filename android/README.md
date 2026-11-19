@@ -237,12 +237,16 @@ So "kena blacklist" almost always means one of two different things:
 1. **The app is on a package/certificate list.** Then the fix is identity, and
    it is already in the build: `.github/workflows/android.yml` generates a
    random `applicationId`, a random label and a fresh keystore on every run,
-   builds with `-PappId/-PappLabel/-PksFile/...`, and proves the id reached the
-   manifest before publishing. `dist/IDENTITY.txt` says what this build is:
+   builds with `-PappId/-PappLabel/-PksFile/...`, then reads the finished APK
+   back with `tools/verify_build.py` — package id in the binary manifest, label
+   in `resources.arsc`, certificate digest — and refuses to publish on a
+   mismatch. `dist/IDENTITY.txt` says what this build is:
 
    ```
-   package: com.4f2a91.b7c0de
+   package: com.a4f2a9.b7c0de
    label:   Utilities
+   apk:     <sha256 of the apk>
+   sdk:     26 -> 34
    Owner:   CN=Android, OU=Android, ...
    SHA256:  <cert digest>
    ```
@@ -421,11 +425,13 @@ android/
 tools/
 ├─ lan_config.py      the laptop side: send settings, watch addresses
 ├─ apk_triage.py      inspect any APK with no SDK: manifest, cert, libs, strings
+├─ verify_build.py    the publish gate: does the APK carry the identity asked for
 └─ tests/
    ├─ test_memd.py          drives the real daemon on Linux
    ├─ test_lan_config.py    pins the packet format, runs sender -> listener
    ├─ test_java.py          compiles the app's Java against API stubs
-   └─ test_apk_triage.py    the APK inspector against a synthetic APK
+   ├─ test_apk_triage.py    the APK inspector against a synthetic APK
+   └─ test_verify_build.py  the gate against APKs broken one field at a time
 ```
 
 The old iOS tree is not deleted from history: tag `ios-final` on `main` is the

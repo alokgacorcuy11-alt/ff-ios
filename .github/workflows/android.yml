@@ -109,6 +109,12 @@ jobs:
             --label "$(cat .applabel)" \
             --identity dist/IDENTITY.txt
           cp android/app/app/src/main/assets/memd dist/memd
+          # The site mints keys with LICENSE_SECRET; the phone verifies with the
+          # compiled-in License.SECRET. If they differ, every key sold is dead on
+          # arrival and nothing else in this pipeline notices - both sides are
+          # internally consistent. This reads the secret out of License.java and
+          # looks for it in the APK's dex.
+          python3 tools/check_apk_secret.py --apk dist/ffmenu.apk
           cat dist/IDENTITY.txt
           sha256sum dist/* | tee dist/SHA256SUMS
 

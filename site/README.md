@@ -372,6 +372,17 @@ What each one actually proves:
   one nav link inside `<nav>` before `ACTIVATE`, a second run is byte-identical,
   and a directory that is not a site is refused.
 
+One check needs a built APK, so it is a CI step rather than part of the suite:
+
+```bash
+python tools/check_apk_secret.py --apk dist/ffmenu.apk
+```
+
+It reads the secret out of `License.java` and looks for it inside the APK's dex,
+and fails the build if the current secret is missing or the placeholder is
+present. Without it, changing the site secret without rebuilding the APK ships a
+product where every key is rejected - and both sides look correct on their own.
+
 ---
 
 ## 10. Verified on the live deployment

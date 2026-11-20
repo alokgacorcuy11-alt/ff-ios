@@ -1,10 +1,8 @@
-// ===== public/android.js - DEMIOS Android storefront =====
+// ===== public/app.js - the DEMIOS storefront =====
 //
-// Same shape as /store.js: plans -> order -> poll -> key. The differences are
-// the endpoints (/api/android/*), the localStorage key (so an iOS order and an
-// Android order can sit in the same browser without clobbering each other), the
-// countdown, and the QR being drawn on a canvas from packed bits instead of an
-// <img> pointing at a data URI.
+// plans -> order -> poll -> key. The QR is drawn on a canvas from packed bits
+// rather than an <img> pointing at a data URI: ~800 bytes on the wire against
+// 40-60 KB of SVG path data for the same symbol.
 
 (() => {
   const $ = (id) => document.getElementById(id);

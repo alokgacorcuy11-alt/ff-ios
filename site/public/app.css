@@ -1,8 +1,7 @@
-/* ===== android.css - only the parts store.css does not already have =====
+/* ===== app.css - only the parts site.css does not already have =====
    Everything structural (nav, hero, cards, order block, buttons, footer) comes
-   from /store.css, so the two pages stay visually identical without copying
-   13 KB of CSS. This file adds the download strip, the action row, the
-   requirements list and the canvas QR. */
+   from /site.css, so nothing is duplicated. This file adds the download strip,
+   the action row, the requirements list and the canvas QR. */
 
 /* ---- download strip ---- */
 .dl{
@@ -62,7 +61,7 @@ canvas.qr{display:block;width:min(260px,78vw);height:auto;margin:6px auto 10px;
 /* ---- a small "expired" tone for the checkout ---- */
 .st.expired{color:var(--dim);border-color:var(--line);background:rgba(255,255,255,.04)}
 
-/* ===== back office (/android-admin) ===== */
+/* ===== back office (/admin) ===== */
 .ad-login{margin:18px 0 0;border:1px solid var(--line-r);background:rgba(6,8,13,.9);padding:18px}
 .ad-label{display:flex;flex-direction:column;gap:6px;font-family:var(--fm);font-size:10.5px;
   letter-spacing:.16em;color:var(--dim)}

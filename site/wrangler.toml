@@ -1,28 +1,22 @@
-# ===== site/wrangler.toml - the blocks the Android storefront needs =====
+# ===== site/wrangler.toml - the whole site =====
 #
-# This is a fragment, not a whole config. The Pages project (demios) already
-# exists, is a direct-upload project (not Git-connected), and already has its own
-# name, output directory, KV binding (KEYS) and nine secrets for the iOS store.
-# Pasting this file over the top would rename the project and drop all of that.
+# This directory is the Pages project now: public/ is the site, functions/ is its
+# API. It used to be an overlay that had to be merged into another project, which
+# is why this file used to say "fragment". It does not any more.
 #
-# Merge the three blocks below into the existing wrangler.toml, or set them in
-# the dashboard. Neither is needed for the KV binding or the two vars if the
-# project config already carries them - see README section 1.
+#   cd site
+#   npx wrangler pages deploy public --project-name demios --branch main
 #
-# Check what you have first:
-#   wrangler pages project list
-#   wrangler kv namespace list
+# Both `wrangler` and the dashboard work; neither needs the other.
 
-# ---- keep whatever name/output dir the project already uses ----------------
-# name = "demios"
-# pages_build_output_dir = "web/public"
+name = "demios"
+pages_build_output_dir = "public"
+compatibility_date = "2024-11-01"
 
-# ---- the namespace that holds Android orders -------------------------------
-# A dedicated namespace, not the iOS one, so an Android order can never be read
-# by the iOS path (same reason the plan ids are a1d/a7d/a30d and not 1d/7d/30d).
-#
-# Binding name matters to the code: functions/_lib/orders.js tries DEMIOS_KV,
-# then ORDERS, then STORE_KV, then KV, and uses the first one that is bound.
+# ---- order storage --------------------------------------------------------
+# A namespace of its own, not the one the iOS build used (KEYS). That binding is
+# still on the project and now unused; it is left alone rather than deleted,
+# because the keys it holds cannot be recovered once it is gone.
 [[kv_namespaces]]
 binding = "DEMIOS_KV"
 id = "d6ff8b28077b43caad79594c87c7b407"
@@ -32,19 +26,18 @@ id = "d6ff8b28077b43caad79594c87c7b407"
 PAY_MODE = "manual"          # manual | klikqris
 ORDER_RATE_PER_HOUR = "30"   # per IP; 0 disables the cap
 
-# ---- secrets (never in this file) -----------------------------------------
+# ---- secrets (set with wrangler, never stored here) -----------------------
 #   wrangler pages secret put LICENSE_SECRET --project-name demios
 #   wrangler pages secret put ADMIN_SECRET   --project-name demios
 #   wrangler pages secret put QRIS_STATIC    --project-name demios
 #   wrangler pages secret put WEBHOOK_SECRET --project-name demios   (optional)
-#   wrangler pages secret put KLIKQRIS_KEY   --project-name demios   (only for PAY_MODE=klikqris)
+#   wrangler pages secret put KLIKQRIS_KEY   --project-name demios   (PAY_MODE=klikqris)
 #
-# LICENSE_SECRET must be byte-identical to License.SECRET in
-# android/app/app/app/src/main/java/com/alokg/ffmenu/License.java, and
-# site/tools/install.py prints it from that file so it cannot be mistyped.
+# LICENSE_SECRET must equal License.SECRET in
+# android/app/app/src/main/java/com/alokg/ffmenu/License.java.
+# site/tools/deploy.py prints it from that file, so it cannot be mistyped.
 #
-# KLIKQRIS_KEY falls back to KLIKQRIS_API_KEY, which the project already has - so
-# the credential that is already configured is picked up with no new variable.
+# KLIKQRIS_KEY falls back to KLIKQRIS_API_KEY, which the project already has.
 #
-# Preview deployments get their own environment. Setting a secret here does not
-# put it in preview, and vice versa. See README section 1C.
+# Preview deployments do NOT inherit production secrets. Setting one here does
+# not put it in the preview environment and the other way round.

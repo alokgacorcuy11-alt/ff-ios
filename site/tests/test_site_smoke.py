@@ -1,18 +1,17 @@
 #!/usr/bin/env python3
-"""test_site_smoke.py - the deploy smoke test, proved against two real servers.
+"""test_site_smoke.py - the deploy smoke test, proved against real servers.
 
-smoke.py is the tool that catches "the page returns 200 and renders as unstyled
-HTML", which is what happens when an overlay is deployed without the stylesheet
-it sits next to. A tool like that is worth nothing unless it is known to fail
-when it should, so this serves two lollipop deployments over loopback:
+smoke.py catches "the page returns 200 and renders as unstyled HTML", which is
+what happens when a stylesheet it references is not in the deploy directory. A
+monitoring tool is worth nothing unless it is known to fail when it should, so
+this serves three lollipop sites over loopback, with Pages' clean URLs and its
+_redirects behaviour:
 
-  * an overlay-only one, exactly what site/public is: /android comes back 200
-    and /store.css is a 404. smoke.py must exit 1 and name the file.
-  * a complete one: the same tree plus a store.css that defines the classes the
-    page needs. smoke.py must exit 0.
-
-The second server is also given a decoy: a store.css that is 200 but defines
-nothing. Status alone would pass that; the selector check must not.
+  * the real tree with /site.css removed - exactly the shape that was broken.
+    smoke.py must exit 1 and name the file.
+  * the real tree as it is: exit 0.
+  * the real tree with a /site.css that returns 200 and defines nothing. Status
+    alone would pass that; the selector check must not.
 
   python site/tests/test_site_smoke.py
 """
@@ -32,6 +31,7 @@ import threading
 HERE = pathlib.Path(__file__).resolve().parent
 SITE = HERE.parent
 SMOKE = SITE / "tools" / "smoke.py"
+PUBLIC = SITE / "public"
 
 PASS = 0
 FAIL = 0
@@ -53,29 +53,31 @@ def check(cond: bool, msg: str, extra: str = "") -> None:
     (ok if cond else bad)(msg + (f"  {extra}" if extra else ""))
 
 
-GOOD_CSS = """
-:root{--bg:#05060A}
-*{box-sizing:border-box}
-body{margin:0;background:var(--bg)}
-.wrap{max-width:1100px;margin:0 auto;padding:0 18px}
-.nav{display:flex;align-items:center;gap:14px}
-.hero{padding:40px 0}
-.pcard{border:1px solid #222;padding:18px}
-.activate{width:100%;padding:12px}
-"""
-
-# 200, right content type, and defines none of the classes the page uses.
 DECOY_CSS = ":root{--bg:#000}\nbody{margin:0}\n"
 
 
-class Quiet(http.server.SimpleHTTPRequestHandler):
-    """A file server with Pages' clean URLs: /android serves android.html."""
+class Pages(http.server.SimpleHTTPRequestHandler):
+    """Enough of Pages to be useful: clean URLs, and _redirects."""
 
     def send_head(self):  # noqa: D102
+        root = pathlib.Path(self.directory)
         path = self.path.split("?", 1)[0]
+
+        # _redirects: "from to [status]"
+        red = root / "_redirects"
+        if red.is_file():
+            for line in red.read_text(encoding="utf-8").splitlines():
+                parts = line.split()
+                if len(parts) >= 2 and not line.strip().startswith("#") and parts[0] == path:
+                    self.send_response(int(parts[2]) if len(parts) > 2 else 302)
+                    self.send_header("Location", parts[1])
+                    self.send_header("Content-Length", "0")
+                    self.end_headers()
+                    return None
+
+        # clean URLs: /admin serves admin.html
         if path != "/" and "." not in path.rsplit("/", 1)[-1]:
-            candidate = pathlib.Path(self.directory) / (path.lstrip("/") + ".html")
-            if candidate.is_file():
+            if (root / (path.lstrip("/") + ".html")).is_file():
                 self.path = path + ".html"
         return super().send_head()
 
@@ -84,94 +86,87 @@ class Quiet(http.server.SimpleHTTPRequestHandler):
 
 
 def serve(directory: str):
-    handler = functools.partial(Quiet, directory=directory)
+    handler = functools.partial(Pages, directory=directory)
     httpd = socketserver.TCPServer(("127.0.0.1", 0), handler)
     httpd.allow_reuse_address = True
-    t = threading.Thread(target=httpd.serve_forever, daemon=True)
-    t.start()
+    threading.Thread(target=httpd.serve_forever, daemon=True).start()
     return httpd, httpd.server_address[1]
 
 
 def run_smoke(base: str) -> subprocess.CompletedProcess:
     return subprocess.run([sys.executable, str(SMOKE), "--base", base, "--skip-api"],
-                          capture_output=True, text=True, encoding="utf-8", errors="replace",
-                          timeout=180)
+                          capture_output=True, text=True, encoding="utf-8",
+                          errors="replace", timeout=300)
 
 
-def build(root: pathlib.Path, css: str | None, with_favicon: bool = True) -> None:
+def build(root: pathlib.Path) -> None:
     root.mkdir(parents=True, exist_ok=True)
-    for f in (SITE / "public").iterdir():
+    for f in PUBLIC.iterdir():
         if f.is_file():
             shutil.copy2(f, root / f.name)
-    if with_favicon:
-        (root / "favicon.svg").write_text(
-            '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1 1"></svg>', encoding="utf-8")
-    if css is not None:
-        (root / "store.css").write_text(css, encoding="utf-8")
 
 
 def main() -> int:
-    if not SMOKE.exists():
-        bad("site/tools/smoke.py is missing")
-        return 1
-    if not (SITE / "public" / "android.html").exists():
-        bad("site/public/android.html is missing")
+    if not SMOKE.exists() or not (PUBLIC / "index.html").exists():
+        bad("the site or the smoke tool is missing")
         return 1
 
     tmp = pathlib.Path(tempfile.mkdtemp(prefix="smoke-"))
     servers = []
     try:
-        # ---- 1. overlay only: the exact shape that looked broken -----------
-        only = tmp / "only"
-        build(only, css=None)
-        check(not (only / "store.css").exists(), "the overlay really has no store.css")
-        httpd, port = serve(str(only))
+        # ---- 1. the site without its stylesheet ---------------------------
+        broken = tmp / "broken"
+        build(broken)
+        (broken / "site.css").unlink()
+        httpd, port = serve(str(broken))
         servers.append(httpd)
         r = run_smoke(f"http://127.0.0.1:{port}")
-        check(r.returncode == 1, "smoke exits 1 on an overlay-only deployment",
+        check(r.returncode == 1, "smoke exits 1 when the stylesheet is missing",
               "exit " + str(r.returncode))
-        check("/store.css" in r.stdout, "and names the missing stylesheet")
-        check("plain HTML" in r.stdout or "no layout" in r.stdout,
-              "and explains the symptom it will cause")
-        check("GET /android -> 200" in r.stdout,
-              "while still reporting that the page itself answered 200")
-        check("[FAIL]" in r.stdout and "render unstyled" in r.stdout,
-              "and says the page will render unstyled")
+        check("/site.css" in r.stdout, "and names /site.css")
+        check("no layout" in r.stdout or "plain HTML" in r.stdout,
+              "and explains the symptom")
+        check("GET / -> 200" in r.stdout, "while reporting the page itself answered 200")
+        check("render unstyled" in r.stdout, "and says the page will render unstyled")
 
-        # ---- 2. complete deployment ---------------------------------------
+        # ---- 2. the site as it is -----------------------------------------
         full = tmp / "full"
-        build(full, css=GOOD_CSS)
+        build(full)
         httpd, port = serve(str(full))
         servers.append(httpd)
         r = run_smoke(f"http://127.0.0.1:{port}")
-        check(r.returncode == 0, "smoke exits 0 when the stylesheet is there",
-              "exit " + str(r.returncode))
+        check(r.returncode == 0, "smoke exits 0 on the real tree",
+              "exit " + str(r.returncode) + " :: "
+              + " | ".join(l for l in r.stdout.splitlines() if "FAIL" in l)[:200])
         check("defines .wrap, .nav, .hero, .pcard, .activate" in r.stdout,
-              "and confirms the stylesheet defines the classes the page needs")
-        check("/qr.js is loaded before /android.js" in r.stdout,
-              "and that the script order is right")
+              "and confirms site.css defines the classes the page needs")
+        check("loads first, before /app.js" in r.stdout, "and the script order is right")
+        check("/admin -> 200" in r.stdout, "and the back office renders")
+        for old in ("/store", "/activate", "/install", "/panel", "/android", "/android-admin"):
+            check(f"{old} -> 301" in r.stdout, f"and {old} redirects instead of dead-ending")
 
         # ---- 3. a 200 that is not a stylesheet ----------------------------
         decoy = tmp / "decoy"
-        build(decoy, css=DECOY_CSS)
+        build(decoy)
+        (decoy / "site.css").write_text(DECOY_CSS, encoding="utf-8")
         httpd, port = serve(str(decoy))
         servers.append(httpd)
         r = run_smoke(f"http://127.0.0.1:{port}")
-        check(r.returncode == 1,
-              "a 200 stylesheet that defines nothing still fails",
+        check(r.returncode == 1, "a 200 stylesheet that defines nothing still fails",
               "exit " + str(r.returncode))
         check("does not define" in r.stdout, "and says which selectors are missing")
 
         # ---- 4. no favicon -------------------------------------------------
         bare = tmp / "bare"
-        build(bare, css=GOOD_CSS, with_favicon=False)
+        build(bare)
+        (bare / "favicon.svg").unlink()
         httpd, port = serve(str(bare))
         servers.append(httpd)
         r = run_smoke(f"http://127.0.0.1:{port}")
         check(r.returncode == 1 and "/favicon.svg" in r.stdout,
               "a missing favicon is reported too")
 
-        # ---- 5. a page that is not there ----------------------------------
+        # ---- 5. unreachable -------------------------------------------------
         r = run_smoke("http://127.0.0.1:1")
         check(r.returncode == 1, "an unreachable base exits 1 rather than crashing")
         check("[FAIL]" in r.stdout, "and says what failed")

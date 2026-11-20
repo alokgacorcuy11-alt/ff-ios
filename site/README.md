@@ -1,154 +1,97 @@
-# DEMIOS Android - storefront + order API
+# DEMIOS - the Android storefront
 
-The Android product sold on the same site as the iOS one. A buyer picks a plan on
-`/android`, pays with QRIS, and gets a key that the APK accepts offline. Nothing
-here talks to the APK at runtime; the only shared thing is the key format, which
+One product: the Android Free Fire build. A buyer picks a plan on the site, pays
+with QRIS, and gets a key the APK accepts offline. Nothing here talks to the APK
+at runtime; the only shared thing is the key format, which
 `functions/_lib/key.js` mints and `License.java` verifies on the phone.
 
-This directory is a **drop-in overlay** for the existing Pages project. It does
-not replace anything that is already there.
+This directory **is** the Pages project: `public/` is the site and `functions/`
+is its API. It used to be an overlay that had to be copied into another project
+alongside an iOS store; that is gone, and so is the copy step.
 
 ```
 site/
+  public/
+    index.html        /            the storefront
+    admin.html        /admin       the back office
+    site.css          the HUD. the site owns it, so nothing else can restyle it
+    app.css           only the parts site.css does not already have
+    app.js            the storefront
+    qr.js             draws the QR canvas from packed bits
+    favicon.svg
+    robots.txt        disallows /admin and /api/
+    sitemap.xml
+    _redirects        keeps the old URLs working (see section 10)
   functions/
     _lib/
-      key.js        key minting - the same 24-char format as keygen.py
-      qris.js       static QRIS -> dynamic QRIS with the order's amount
-      qr.js         QR encoder (byte mode, EC level M, v1-v20), no dependencies
-      orders.js     order records in KV, token auth, mint-on-approve
-      pay.js        manual QRIS (default) / klikqris adapter / webhook signature
-      plans.js      the price table
-      http.js       json/fail/allow, CSPRNG ids, constant-time compare
+      key.js          key minting - the same 24-char format as keygen.py
+      qris.js         static QRIS -> dynamic QRIS with the order's amount
+      qr.js           QR encoder (byte mode, EC level M, v1-v20), no dependencies
+      orders.js       order records in KV, token auth, mint-on-approve
+      pay.js          manual QRIS (default) / klikqris adapter / webhook signature
+      plans.js        the price table
+      http.js         json/fail/allow, CSPRNG ids, constant-time compare
     api/android/
-      plans.js      GET  - price list + whether payment is configured
-      order.js      POST - create an order;  GET - poll it
-      admin.js      POST - approve, cancel, list, mint (ADMIN_SECRET)
-      webhook.js    POST - gateway callback (disabled without WEBHOOK_SECRET)
-  public/
-    android.html        /android
-    android.css         only the deltas on top of /store.css
-    android.js          the storefront
-    qr.js               draws the QR canvas from packed bits
-    android-admin.html  /android-admin - the back office
+      plans.js        GET  - price list + whether payment is configured
+      order.js        POST - create an order;  GET - poll it
+      admin.js        POST - approve, cancel, list, mint
+      webhook.js      POST - gateway callback (disabled without WEBHOOK_SECRET)
   tools/
-    install.py          copy the overlay into a real project, add the nav link
-    smoke.py            check a deployment from the outside, asset by asset
-    mint.mjs            mint/verify a key from the command line
-    pay_probe.mjs       ask a live gateway to make one QR and report the shape
+    deploy.py         check the tree is deployable, print (or run) the deploy
+    smoke.py          check a deployment from the outside, asset by asset
+    mint.mjs          mint/verify a key from the command line
+    pay_probe.mjs     ask a live gateway to make one QR and report the shape
     qris_from_image.py  decode a QRIS screenshot into the payload string
-    qris_static.mjs     recover a merchant template from a dynamic payload
-    qr_probe.mjs        encoder dump used by the tests
-    qris_probe.mjs      QRIS builder dump used by the tests
-  tests/                7 suites, wired into tools/tests/run_all.py
-  wrangler.toml         a fragment - merge, do not paste over
-  package.json          only to mark the tree as ESM; Pages ignores it
+    qris_static.mjs   recover a merchant template from a dynamic payload
+    qr_probe.mjs, qris_probe.mjs   dumps used by the tests
+  tests/              9 suites, wired into ../tools/tests/run_all.py
+  wrangler.toml       the project: name, output dir, KV binding, vars
 ```
+
+The API keeps its `/api/android/` prefix even though it is the only product.
+Renaming it would touch every route, every test and every document to remove six
+characters that no buyer ever sees.
 
 ---
 
 ## 1. Deploy
 
-`site/public` is **not a website**. It is five files that belong next to the ones
-already there. Running `wrangler pages deploy site/public` on its own would
-replace the whole project - `store.html`, `/api/buy`, the iOS storefront - with
-five files. Do not do that.
-
-### A. Copy it in (the only safe path)
-
 ```bash
-# point it at your project's real output dir; --functions is auto-detected
-python site/tools/install.py --static web/public --dry-run   # see what changes
-python site/tools/install.py --static web/public
+cd site
+python tools/deploy.py                    # check, then print the commands
+python tools/deploy.py --run              # check, then deploy to production
+python tools/deploy.py --run --branch next   # a preview instead
 ```
 
-It copies `public/*` next to your pages, copies `functions/*` next to your
-Functions, and adds one line to `store.html`:
+`deploy.py` is a check first and a deploy second. It verifies every required
+file, resolves every local asset each page references, confirms the redirects
+cover the old URLs, and prints the `LICENSE_SECRET` read out of `License.java` so
+the two sides cannot be set to different strings by hand.
 
-```html
-<a href="/android" class="nav-admin">ANDROID</a>
-```
+### Secrets
 
-That link goes in before `ACTIVATE`, once. Running it twice changes nothing, and
-it refuses a directory that does not contain `store.html`/`index.html`, or a
-`--static` that points back at the overlay.
-
-### B. KV, secrets, deploy
+Set once, on the project. They are write-only, so setting them again is the only
+way to be sure:
 
 ```bash
-wrangler kv namespace create DEMIOS_KV        # prints the id
-
-# merge the [[kv_namespaces]] and [vars] blocks from site/wrangler.toml
-# into the project's own wrangler.toml, then:
-
 wrangler pages secret put LICENSE_SECRET --project-name demios
 wrangler pages secret put ADMIN_SECRET   --project-name demios
 wrangler pages secret put QRIS_STATIC    --project-name demios
-
-wrangler pages deploy web/public --project-name demios
 ```
 
-`install.py` prints the exact `LICENSE_SECRET` value, read out of
-`License.java`, so the two sides cannot be set to different strings by hand.
-
-### Check the deployment, from the outside
+### Then prove it
 
 ```bash
 python site/tools/smoke.py --base https://demios.pages.dev --admin-secret <S>
 ```
 
-It fetches the pages, follows every local asset they reference, and demands each
-one load - then it confirms `/store.css` actually defines the classes the page
-needs, drives create -> poll -> wrong-token, pings the admin endpoint, and
-cancels the order it created so nothing is left behind. Exit 1 names the exact
-path that failed.
+It fetches the pages, follows every local asset, demands each one load, checks
+that `site.css` defines the classes the page needs, confirms the retired URLs
+redirect, then drives create -> poll -> wrong token -> admin ping and cancels
+the order it created. Exit 1 names the path that failed.
 
-This exists because of a real failure: the preview branch carried the Android
-pages but not the project's `store.css`, so `/android` returned **200** and
-rendered as unstyled HTML. A status check passes that; this does not.
-
-### C. Preview first, if you want
-
-A deployment to any branch other than `main` is a preview: production is
-untouched, and the URL is `<branch>.demios.pages.dev`.
-
-```bash
-wrangler pages deploy site/public --project-name demios --branch android
-# -> https://android.demios.pages.dev/android
-```
-
-Useful for checking the Functions in the real runtime before touching the live
-store. It will not have your homepage or `/api/buy` - it is a preview of the
-overlay only.
-
-Because of that, a preview deployment also has no `store.css`, and `/android`
-will render as plain unstyled HTML there. That is the deployment missing a file,
-not the page being broken: copy the project's `store.css` and `favicon.svg` next
-to the overlay in the deploy directory and the preview looks like the real
-thing. Do not copy them into `site/public` in the repo - `install.py` copies that
-directory into the live project, and a stale `store.css` would overwrite the one
-that is actually serving your site.
-
-**Preview does not inherit production secrets.** Cloudflare keeps two separate
-environments, and a variable set for production is not visible to a preview
-deployment until it is added to the preview environment as well (dashboard:
-Settings -> Variables and Secrets -> Preview). Bindings and `[vars]` declared in
-the deploy config do apply to preview, which is why KV works there before any
-secret does.
-
-### D. What is already set up on the project
-
-Done for `demios` (direct upload, no Git connection):
-
-| | |
-|---|---|
-| KV namespace | `DEMIOS_ANDROID`, id `d6ff8b28077b43caad79594c87c7b407` |
-| Binding, both environments | `DEMIOS_KV` |
-| Production secrets | `LICENSE_SECRET`, `ADMIN_SECRET` added; the nine iOS secrets and the `KEYS` binding untouched |
-| Preview | `LICENSE_SECRET`, `ADMIN_SECRET`, `PAY_MODE=manual`, `ORDER_RATE_PER_HOUR=30` |
-| Preview branch | `android` -> https://android.demios.pages.dev/android |
-
-Production still needs `QRIS_STATIC` (or `PAY_MODE=klikqris`), and a deploy that
-includes the overlay. Everything else is in place.
+This exists because of a real failure: a page whose stylesheet is missing returns
+**200** and renders as unstyled HTML. A status check passes that; this does not.
 
 ---
 
@@ -157,59 +100,54 @@ includes the overlay. Everything else is in place.
 | name | kind | required | what it does |
 |---|---|---|---|
 | `LICENSE_SECRET` | secret | **yes** | signs keys. Must be byte-identical to `License.SECRET` in the APK. |
-| `ADMIN_SECRET` | secret | **yes** | unlocks `/android-admin` and `POST /api/android/admin`. |
-| `QRIS_STATIC` | secret | yes for manual | the seller's static QRIS payload (see §3). |
-| `DEMIOS_KV` | binding | **yes** | order storage. The code also accepts `ORDERS`, `STORE_KV` or `KV` if one is already bound. |
+| `ADMIN_SECRET` | secret | **yes** | unlocks `/admin` and `POST /api/android/admin`. |
+| `QRIS_STATIC` | secret | yes for manual | the seller's static QRIS payload (section 3). |
+| `DEMIOS_KV` | binding | **yes** | order storage. |
 | `PAY_MODE` | var | no | `manual` (default) or `klikqris`. |
 | `ORDER_RATE_PER_HOUR` | var | no | orders per IP per hour, default `30`, `0` disables. |
 | `WEBHOOK_SECRET` | secret | no | enables `POST /api/android/webhook`. Without it the endpoint refuses everything. |
-| `KLIKQRIS_CREATE_URL` | secret | only for `klikqris` | the create endpoint. |
-| `KLIKQRIS_KEY` | secret | only for `klikqris` | the credential. Falls back to `KLIKQRIS_API_KEY`, which this project already has - so the existing secret is picked up with no new variable. |
-| `KLIKQRIS_MERCHANT_ID` | secret | no | sent as `merchant_id` when set. Already present in the project. |
-| `KLIKQRIS_AUTH_HEADER` | var | no | default `x-api-key`. Set `Authorization` if the account wants a bearer token. |
-| `KLIKQRIS_AUTH_PREFIX` | var | no | default empty. Set `Bearer ` (trailing space) with `Authorization`. |
-| `KLIKQRIS_BODY` | var | no | a JSON template with `{{amount}}`, `{{ref_id}}`, `{{merchant_id}}`. |
-| `KLIKQRIS_QR_FIELDS`, `KLIKQRIS_URL_FIELDS` | var | no | dotted paths into the gateway's JSON, comma separated. Set these instead of editing code when the response shape differs. |
+| `KLIKQRIS_CREATE_URL`, `KLIKQRIS_KEY` | secret | only for `klikqris` | see section 6. |
+| `KLIKQRIS_MERCHANT_ID`, `KLIKQRIS_AUTH_HEADER`, `KLIKQRIS_AUTH_PREFIX`, `KLIKQRIS_BODY` | var | no | the account's own request shape. |
+| `KLIKQRIS_QR_FIELDS`, `KLIKQRIS_URL_FIELDS` | var | no | dotted paths into the response, comma separated. |
+| `QRIS_DECIMALS` | var | no | `2` (default) writes `140000.00`, which is what the observed acquirer writes; `0` writes whole rupiah. |
 
-`LICENSE_SECRET` is the one that will bite. It was rotated off the placeholder
-before the first sale; read the current value with:
+Preview deployments get their own environment and do **not** inherit these.
 
-```bash
-python site/tools/install.py --static web/public --dry-run | grep LICENSE_SECRET
-# or straight from the source of truth:
-grep -o 'SECRET = "[^"]*"' android/app/app/src/main/java/com/alokg/ffmenu/License.java
-```
+### What is left over from the iOS product
 
-Change it in both places, in the same commit, then rebuild the APK. The suite
-`site/tests/test_site_key.py` reads the secret out of the compiled Java class and
-mints with it, so a drift is caught - but only if the two agree when the test
-runs, not if you change one and never redeploy.
+These are still set on the project and nothing reads them any more:
+`KEY_SECRET`, `ADMIN_KEYS`, `INSTALL_SECRET`, `CA_DER`, `CRON_SECRET`,
+`PROXY_HOST`, `PROXY_PORT`, and the `KEYS` KV binding.
+
+They are left alone deliberately. Secret values cannot be read back once
+written, and the KV namespace holds records that cannot be recovered if it is
+deleted. Remove them with `wrangler pages secret delete` and
+`wrangler kv namespace delete` only when you are sure the iOS build is not
+coming back.
+
+`KLIKQRIS_API_KEY` and `KLIKQRIS_MERCHANT_ID` are the exception: `KLIKQRIS_KEY`
+falls back to `KLIKQRIS_API_KEY`, so the gateway credential that is already there
+is used as-is.
 
 ---
 
 ## 3. `QRIS_STATIC`
 
-The seller's *static* QRIS string - the one behind the QR in GoPay Merchant /
+The seller's static QRIS string - the one behind the QR in GoPay Merchant /
 DANA Bis / BRI / whatever. A static code has no amount, so every buyer would
 type it themselves and nothing could be matched to an order.
 
 The site turns it into a **dynamic** code per order: tag 01 becomes `12`, tag 54
-(the amount) is inserted in order, and tag 63's CRC is recomputed. Same merchant
-account, fixed amount, one scan.
+(the amount) is appended, and tag 63's CRC is recomputed. Same merchant account,
+fixed amount, one scan.
 
-Get the string from the image:
+Get the string from an image:
 
 ```bash
 pip install opencv-python-headless
 python site/tools/qris_from_image.py qris.png
 # 0002010102112665...63048160
-# // 207 bytes, QRIS payload - paste as QRIS_STATIC
 ```
-
-Or scan it with any QR app and copy the text. It must start with `000201` and
-end with `6304` plus four hex characters. `/api/android/plans` reports
-`ready: false` with the reason if it does not validate, so a typo is visible
-before a buyer sees it.
 
 **Do not** put a per-order amount into `QRIS_STATIC` - the site inserts tag 54
 itself and will replace whatever is there.
@@ -218,7 +156,7 @@ itself and will replace whatever is there.
 
 A static code and a dynamic one for the same merchant differ in exactly two
 fields: tag 01 (`11` vs `12`) and tag 54 (absent vs the amount). So any dynamic
-QRIS the same merchant issues contains the template:
+QRIS that merchant issues contains the template:
 
 ```bash
 node site/tools/qris_static.mjs --image qris_from_your_own_store.png
@@ -227,97 +165,59 @@ node site/tools/qris_static.mjs --image qris_from_your_own_store.png
 # rebuild with the amount: byte-identical, CRC included
 ```
 
-It does not trust itself: after recovering the template it puts the same amount
-back and requires the bytes to come out identical, CRC included. If they do not,
-it prints which tag moved and exits 1. That round trip is why the recovered
-template can be used with confidence - it is the acquirer's own arithmetic, not
-a guess about which merchant fields to keep.
-
-Set `QRIS_DECIMALS=0` if the acquirer writes whole rupiah; the observed ones
-(DANA/KlikQRIS) write two decimals, so that is the default.
+It does not trust itself: after recovering the template it puts the amount back
+and requires the bytes to come out identical, CRC included. If they do not, it
+prints which tag moved and exits 1. That round trip is why a recovered template
+can be used with confidence - it is the acquirer's own arithmetic, not a guess
+about which merchant fields to keep.
 
 Keep the result out of the repository. A template identifies the merchant
 underneath it.
 
 ---
 
-## 4. Daily use - `/android-admin`
+## 4. Daily use - `/admin`
 
-1. Open `/android-admin`, paste `ADMIN_SECRET`, **MASUK**. It is kept in
+1. Open `/admin`, paste `ADMIN_SECRET`, **MASUK**. It is kept in
    `sessionStorage`: closing the tab forgets it.
-2. The **MENUNGGU** tab is the queue, with the amount and the order age.
+2. **MENUNGGU** is the queue, with the amount and the order's age.
 3. When the money shows up in the merchant app, press **SUDAH BAYAR -> TERBITKAN
    KEY**. The key appears on the row and on the buyer's page within ~4 seconds.
 4. **BATALKAN** closes an order that will never be paid.
 5. **MINT** issues a key by hand - replacements, a refund, a friend.
 
-Approving twice returns the first key, not a second licence. That is deliberate:
-a double-click must not cost a sale.
+Approving twice returns the first key, not a second licence: a double-click must
+not cost a sale. If a buyer loses their browser storage, their key is still on
+the order row - find the order id and read it off.
 
-The buyer's page polls `GET /api/android/order` every 4 seconds and stops when
-the key arrives. If the buyer closes the tab and loses `localStorage`, the key is
-still in the order record - find the order id in `/android-admin` and read it off
-the row.
+### Matching a payment to an order
 
-### Making approval exact
+Every order gets its own amount: the plan price plus a three-digit code (`a:seq`
+in KV, 100-999, advancing per order). A 140.000 plan is charged as 140.101, then
+140.102, and so on. The admin sees the amount in the merchant app and in
+`/admin`, and the two match without guessing from a timestamp.
 
-Every order gets its own amount: the plan price plus a three-digit code
-(`a:seq` in KV, 100-999, advancing per order). A 140.000 plan is charged as
-140.101, then 140.102, and so on. The admin sees the amount in the merchant app
-and in `/android-admin`, and the two match without guessing from a timestamp.
-
-This is what the reference store does, and it is the single biggest difference
-in daily operation: without it, two pending orders of the same plan owe the same
-rupiah and approval becomes a judgement call.
-
-The buyer is told the amount is exact - the checkout shows the base price and
-the payable amount separately, and the note says the last three digits are the
-order's own code.
+The checkout shows the base price and the payable amount separately, and the note
+says the last three digits are the order's own code, so the odd number is
+explained rather than suspicious.
 
 ---
 
 ## 5. Prices
 
-`site/functions/_lib/plans.js`, one array. Ids are `a1d`, `a7d`, `a30d` - the
-`a` prefix matters: the iOS store uses `1d`, `7d`, `30d` in the same KV
-namespace, and an Android order must never be answerable by the iOS path.
-
-`tier` goes into the key's payload nibble (`1` basic, `2` pro). `License.java`
-reports it but nothing gates on it yet.
+`site/functions/_lib/plans.js`, one array: `a1d` 40.000, `a7d` 140.000, `a30d`
+300.000. `tier` goes into the key's payload nibble (`1` basic, `2` pro);
+`License.java` reports it but nothing gates on it yet.
 
 ---
 
-## 6. The order lifecycle
+## 6. Payment modes
 
-```
-POST /api/android/order { plan: "a7d", device?: "<android id>" }
-  -> { orderId: "AND-7K2M9Q", token: "<24 hex>", amount: 140000,
-       qr: { size: 61, bits: "<base64>" }, expiresAt, note }
-
-GET  /api/android/order?id=AND-7K2M9Q&token=<24 hex>
-  -> { status: "pending" | "paid" | "cancelled" | "expired", key? }
-```
-
-- The token is returned **once**, at creation. The order id is short enough to
-  read over the phone, so the token is what makes it unguessable. Wrong token =
-  404, never a key.
-- A pending order lives 30 minutes. Expiry is computed on read, not written, so
-  nothing has to sweep the namespace.
-- `device` is optional. Filled in, the key binds to that Android ID and works
-  nowhere else; empty, it works on any phone until it expires.
-- The APK prints the device id after a successful activation, so a buyer who
-  already has a key can find theirs.
-
----
-
-## 7. Payment modes
-
-### manual (default)
+### manual (default, working today)
 
 No gateway account, no callback URL, no API key. The seller's static QRIS is
 turned into a dynamic code for the order's amount, the buyer scans it, and the
-seller presses one button. Honest about the trade-off: a human is in the loop,
-and the page says the key appears after the payment is confirmed.
+seller presses one button. A human is in the loop and the page says so.
 
 ### klikqris
 
@@ -327,27 +227,20 @@ string or a payment URL at a list of known paths, then at whatever
 `KLIKQRIS_QR_FIELDS` / `KLIKQRIS_URL_FIELDS` say.
 
 Nothing about the account is assumed. The endpoint, the credential, the header
-name, the auth prefix and the request body all come from env (`KLIKQRIS_AUTH_HEADER`,
-`KLIKQRIS_AUTH_PREFIX`, `KLIKQRIS_BODY`, `KLIKQRIS_MERCHANT_ID`), so a gateway that
+name, the auth prefix and the request body all come from env, so a gateway that
 wants `Authorization: Bearer <key>` and `{"nominal":"140000"}` is a set of
 variables, not a patch:
 
 ```bash
-# what the account might be:
 KLIKQRIS_AUTH_HEADER=Authorization
 KLIKQRIS_AUTH_PREFIX="Bearer "
 KLIKQRIS_BODY='{"nominal":"{{amount}}","reff":"{{ref_id}}","merchant":"{{merchant_id}}"}'
 ```
 
-Set `KLIKQRIS_API_KEY` and it is used as the credential when `KLIKQRIS_KEY` is
-absent - the project already has that secret, so there is nothing new to add.
-
 Do not guess the account's response shape. Ask it:
 
 ```bash
 node site/tools/pay_probe.mjs --url https://api.gateway/create --key sk_test_...
-# POST ... / auth header x-api-key: sk_t...(24 chars) / body {...}
-# status 200 / { ... }
 # [ok] production would accept this response.
 # or:
 # [FAIL] no known field carries the QR or the payment URL.
@@ -357,8 +250,6 @@ node site/tools/pay_probe.mjs --url https://api.gateway/create --key sk_test_...
 The probe runs the **same** `extract()`, `gatewayConfig()` and `requestBody()`
 that production runs, so a green probe means the checkout will work - not that a
 second implementation agrees with itself. It creates no order and stores nothing.
-Every knob is also a flag (`--auth-header`, `--auth-prefix`, `--body`, `--qr`,
-`--payment`), so a shape can be tried without exporting anything.
 
 Exit codes: `0` accepted, `2` nothing matched, `3` unreachable or HTTP error.
 
@@ -368,6 +259,30 @@ Exit codes: `0` accepted, `2` nothing matched, `3` unreachable or HTTP error.
 `signature = hex(HMAC-SHA256(WEBHOOK_SECRET, orderId + ":" + status + ":" + amount))`.
 Disabled unless `WEBHOOK_SECRET` is set: an unauthenticated endpoint that marks
 orders paid is a free-licence endpoint.
+
+---
+
+## 7. The order lifecycle
+
+```
+POST /api/android/order { plan: "a7d", device?: "<android id>" }
+  -> { orderId: "AND-7K2M9Q", token: "<24 hex>", price: 140000, amount: 140101,
+       unique: 101, qr: { size: 61, bits: "<base64>" }, expiresAt, note }
+
+GET  /api/android/order?id=AND-7K2M9Q&token=<24 hex>
+  -> { status: "pending" | "paid" | "cancelled" | "expired", key? }
+```
+
+- The token is returned **once**, at creation. The order id is short enough to
+  read over the phone, so the token is what makes it unguessable. Wrong token =
+  404, never a key.
+- A pending order lives 30 minutes. Expiry is computed on read, not written.
+- `device` is optional. Filled in, the key binds to that Android ID and works
+  nowhere else; empty, it works on any phone until it expires.
+- Keys are never the same string twice. The payload carries a 24-bit nonce from
+  the CSPRNG; `mint()` refuses to run without one, because without it every key
+  for one plan on one day is byte-identical and one leaked key would open the
+  product for everyone buying that plan that day.
 
 ---
 
@@ -383,59 +298,38 @@ orders paid is a free-licence endpoint.
   What it buys: an expiry, a device binding, and no network dependency during a
   match.
 - **KV is eventually consistent** (up to ~60 s across regions). Fine for this
-  flow - the buyer and the admin are reading the same record minutes apart. It
-  is not fine as a lock, which is why nothing here uses it as one.
+  flow. It is not fine as a lock, which is why nothing here uses it as one.
 
 ---
 
 ## 9. Tests
 
 ```bash
-python tools/tests/run_all.py          # everything, including these seven
-python site/tests/test_site_key.py     # site keys -> the real License.java
-python site/tests/test_site_qr.py      # QR encoder vs a reference implementation
-python site/tests/test_site_qris.py    # static -> dynamic QRIS, CRC, tag order
-python site/tests/test_site_api.py     # the four Functions against a fake KV
-python site/tests/test_site_draw.py    # public/qr.js drawn into a fake canvas
-python site/tests/test_site_markup.py  # page ids and assets vs the scripts
-python site/tests/test_site_pay.py     # the gateway adapter, 6 response shapes
-python site/tests/test_site_install.py # the installer, against a fake project
-python site/tests/test_site_smoke.py   # the deploy smoke test, two loopback deployments
+python tools/tests/run_all.py            # everything, including these nine
+python site/tests/test_site_key.py       # site keys -> the real License.java
+python site/tests/test_site_qr.py        # QR encoder vs a reference implementation
+python site/tests/test_site_qris.py      # static -> dynamic QRIS, CRC, tag order
+python site/tests/test_site_api.py       # the four Functions against a fake KV
+python site/tests/test_site_draw.py      # public/qr.js drawn into a fake canvas
+python site/tests/test_site_markup.py    # page ids, assets, and no iOS wording
+python site/tests/test_site_pay.py       # the gateway adapter, 6 response shapes
+python site/tests/test_site_deploy.py    # the deploy check, against broken trees
+python site/tests/test_site_smoke.py     # the smoke tool, against broken sites
 ```
 
-What each one actually proves:
+What the less obvious ones prove:
 
-- **keys** - compiles `License.java`, reads `SECRET` out of the class, mints with
-  `key.js`, feeds it to the Java verifier. Also asserts node and `keygen.py`
-  produce the identical key for the same day, and that the device hash agrees
-  across python, java and node.
-- **qr** - every matrix, every mask, compared bit-for-bit with python's
-  `qrcode` library; then rasterised and decoded back with OpenCV; then the
-  shipping decoder tool reads a PNG made from the same matrix.
-- **qris** - CRC-16/CCITT-FALSE against the canonical `123456789 -> 29B1`
-  vector, tag 54 in the right position, merchant fields untouched, malformed
-  payloads refused.
-- **api** - the whole lifecycle: create, poll, wrong token, admin auth, approve,
-  idempotent approve, device binding, cancel, expiry, rate limit, webhook
-  signature, missing KV, missing QRIS, wrong methods.
-- **draw** - `public/qr.js` runs in a VM with a recording 2D context; every
-  rectangle it emits is mapped back to a module and compared with what the
-  server sent, and the quiet zone is checked to be empty.
-- **markup** - every id a script reaches for exists in the page, every local
-  asset exists, no TODOs ship.
-- **pay** - a real HTTP server, the real `present()`: flat and nested
-  `qr_string`, `checkout_url` only, an unknown nesting (refused, then fixed by
-  an env var), an empty shape, HTTP 500 and a non-JSON body. The probe is run
-  as a subprocess and its exit codes are asserted.
-- **install** - a temporary project with a `store.html` shaped like the live
-  one: dry run writes nothing, the real run copies everything and adds exactly
-  one nav link inside `<nav>` before `ACTIVATE`, a second run is byte-identical,
-  and a directory that is not a site is refused.
-- **smoke** - two loopback deployments with Pages' clean URLs. An overlay-only
-  one must make `smoke.py` exit 1 naming `/store.css`; a complete one must exit
-  0; a `store.css` that returns 200 but defines no classes must still fail; a
-  missing favicon must be reported; an unreachable base must exit 1 rather than
-  crash. A monitoring tool that has never been seen to fail is not a tool.
+- **markup** - every id a script reaches for exists, every local asset exists,
+  nothing shipping mentions iOS, nothing links to a retired route, and the pages
+  call only endpoints that exist.
+- **deploy** - the real tree passes; then one thing at a time is broken: no
+  `site.css`, a dangling asset reference, a link to `/store`, a self-redirect, a
+  missing API route, a missing `_lib` module. Each must fail and name itself.
+- **smoke** - three loopback sites with Pages' clean URLs and `_redirects`. A
+  missing `site.css` must exit 1; the real tree must exit 0; a stylesheet that
+  returns 200 and defines nothing must still fail; a missing favicon must be
+  reported; an unreachable base must exit 1 rather than crash. A monitoring tool
+  that has never been seen to fail is not a tool.
 
 One check needs a built APK, so it is a CI step rather than part of the suite:
 
@@ -450,60 +344,76 @@ product where every key is rejected - and both sides look correct on their own.
 
 ---
 
-## 10. Verified on the live deployment
+## 10. What was removed, and how to undo it
 
-The overlay was deployed to the preview branch `android` and driven end to end,
-not just unit-tested. What was actually run and what came back:
+The site used to sell an iOS build as well. These were removed:
 
-| step | result |
+| removed | was |
 |---|---|
-| `GET /android`, `/android-admin` | 200, `text/html` |
-| `GET /api/android/plans` | 200, `ready:false`, reason `QRIS_STATIC is not set`, 3 plans |
-| `POST /api/android/order {"plan":"a7d"}` | 200, `AND-XXXXXX`, 24-hex token, `price 140000`, `amount 140101`, QR matrix present |
-| `GET /api/android/order?id=..&token=..` | 200, `pending`, no key |
-| wrong token | 404 `no such order` |
-| `POST admin {action:"ping"}` | 200, `kv: bound`, `licenseSecret: set`, `webhookSecret: missing (webhooks disabled)` |
-| `POST admin {action:"list"}` | the pending order, and no token in the listing |
-| `POST admin {action:"paid"}` | 200, key `4772-4222-2222-ZSDE-5CA6` |
-| the same approve again | the identical key - no second licence |
-| buyer poll after approval | `paid` + that key |
-| `POST admin` with no secret / wrong secret | 401 |
-| `POST /api/android/webhook` unsigned | 503, fails closed |
-| the minted key, in the real `License.class` | `OK 1 7` |
-| the same key, in `keygen.py` | `ok (tier 1)` |
-| the same key, in `key.js` | `{"ok":true,"left":7}` |
-| `GET /api/android/_env` after cleanup | 404 - the temporary diagnostic is gone |
-| the QR the page received, rasterised and scanned with an independent decoder | decodes to a valid QRIS payload, CRC valid |
-| that payload's tag 54 | `140101.00`, exactly the order's amount (140000 + code 101) |
-| that payload's merchant fields (26, 51, 59, 60) | identical to `QRIS_STATIC` - the money reaches the same merchant |
+| `/`, `/store`, `/activate`, `/install`, `/panel` | the iOS landing, store, activation, profile install, and the seller's console |
+| `/hud.css`, `/store.css`, `/store.js`, `/activate.css`, `/activate.js`, `/install.js`, `/panel.css`, `/panel.js` | their assets |
+| `/api/buy`, `/api/order`, `/api/activate`, `/api/install`, `/api/admin`, `/api/config` | their Functions |
 
-The last three matter most: a key minted by the live site verifies in the Java
-class that ships inside the APK, and a QR the live site sends is one a wallet can
-read, for exactly the right amount, at the right merchant. That is the whole
-sale, in three lines.
+`site.css` is the old `store.css`, renamed and now owned by this project.
 
-Finding one of those was also the point of building it. Minting two orders for
-the same plan produced the *same* key twice, because the payload was a pure
-function of (tier, expiry, device) - one leaked key would have opened the product
-for every buyer of that plan that day. The payload now carries a nonce, minting
-without one is refused, and two tests assert that two orders never share a key.
+`_redirects` forwards all six retired URLs to `/`, so old bookmarks land on the
+Android store instead of a dead end. Change the status to `410` in
+`public/_redirects` if you would rather signal that they are gone.
 
-The test orders were then deleted from KV, so the queue starts empty.
+**Two things to know before you consider it finished:**
+
+1. An iOS client already installed in the field may still call `/api/config` for
+   its kill switch and feature flags. That endpoint is gone now and will 404.
+   Whatever it does on failure - keep going, or fall back to defaults - is what
+   it will do.
+2. Undoing this is a redeploy of the previous deployment, not a git revert: the
+   old files were never in this repository. Cloudflare keeps every deployment;
+   roll back from the dashboard, or redeploy from a copy of the old tree.
 
 ---
 
-## 11. Troubleshooting
+## 11. Verified on the live deployment
+
+Driven end to end on the real runtime, not just unit-tested:
+
+| step | result |
+|---|---|
+| `GET /`, `/admin` | 200, `text/html` |
+| `GET /api/android/plans` | 200, 3 plans, `ready:true`, gateway `manual` |
+| `POST /api/android/order {"plan":"a7d"}` | 200, `AND-XXXXXX`, 24-hex token, `price 140000`, `amount 140101` |
+| create -> approve -> poll | `paid` and the key, within a poll |
+| wrong token | 404 `no such order` |
+| approve twice | the identical key - no second licence |
+| 20 approvals in a row | 20 distinct keys, all valid |
+| `admin` with no secret / wrong secret | 401 |
+| unsigned webhook | 503, fails closed |
+| the QR the page received, rasterised and decoded with OpenCV | valid QRIS payload, CRC valid |
+| that payload's tag 54 | `140101.00`, exactly the order's amount |
+| that payload's merchant fields (26, 51, 59, 60) | identical to `QRIS_STATIC` |
+| the minted key in the real `License.class`, in `keygen.py`, in `key.js` | accepted by all three |
+
+Two bugs were found by doing that rather than by reading the code:
+
+- **Duplicate keys.** Two orders for the same plan produced the *same* key,
+  because the payload was a pure function of (tier, expiry, device). One leaked
+  key would have opened the product for every buyer of that plan that day.
+- **Duplicate amounts.** Two pending orders of one plan owed the same rupiah, so
+  approval was matched by timestamp. Every order now carries its own three-digit
+  code.
+
+---
+
+## 12. Troubleshooting
 
 | symptom | cause | fix |
 |---|---|---|
-| `/api/android/plans` says `ready: false`, reason mentions `QRIS_STATIC` | not set, or bad CRC | re-run `qris_from_image.py`, paste the exact string |
-| `no KV binding: bind one as DEMIOS_KV` | binding missing or named differently | add it, or the code will pick up `ORDERS` / `STORE_KV` / `KV` |
+| the page renders as plain HTML, links in blue, no layout | `site.css` is not being served where the page expects it | run `smoke.py`; `site.css` must be in the deploy directory |
+| `/api/android/plans` says `ready: false`, reason mentions `QRIS_STATIC` | not set, or bad CRC | re-run `qris_from_image.py`, set the exact string |
+| `no KV binding: bind one as DEMIOS_KV` | binding missing | add it; `DEMIOS_KV`, `ORDERS`, `STORE_KV` and `KV` are all accepted |
 | admin says `wrong secret` | `ADMIN_SECRET` differs from what you typed | re-set the secret, redeploy, retype |
 | keys rejected by the APK | `LICENSE_SECRET` != `License.SECRET` | make them identical, rebuild the APK |
 | `gateway returned no qr_string and no url` | the account's response shape is not in the list | `node site/tools/pay_probe.mjs ...`, then set `KLIKQRIS_QR_FIELDS` |
 | QR shows but no wallet reads it | the buyer's app is old, or the screen is too dim | the code is dark-on-white at ~1024 px; turn the brightness up |
-| the page renders as plain HTML, links in blue, no layout | `/store.css` is not being served where the page expects it | run `smoke.py`; the deploy directory must contain `store.css` next to `android.html` |
-| order stuck at `pending` after payment | manual mode, nobody approved it | `/android-admin` -> MENUNGGU -> approve |
-| `webhooks are disabled` | `WEBHOOK_SECRET` unset | that is the default and it is safe; set it only if a gateway calls you |
-| the iOS store disappeared after deploying | `site/public` was deployed as the whole site | redeploy from the project root that has your `store.html`, then use `install.py` |
-| a preview deployment says a secret is not set | preview has its own environment; production secrets do not reach it | add the variable to the Preview environment (dashboard: Settings -> Variables and Secrets -> Preview) |
+| order stuck at `pending` after payment | manual mode, nobody approved it | `/admin` -> MENUNGGU -> approve |
+| an old link 404s | it was removed with the iOS product and is not in `_redirects` | add it to `public/_redirects` |
+| `webhooks are disabled` | `WEBHOOK_SECRET` unset | that is the default and it is safe |

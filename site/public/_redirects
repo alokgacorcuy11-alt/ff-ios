@@ -1,0 +1,21 @@
+# ===== _redirects - the site is one product now =====
+#
+# Old URLs, kept working.
+#
+# 301 rather than 404 on the retired pages: someone with a bookmark lands on the
+# Android store instead of a dead end. If you would rather announce that they are
+# gone, change the status to 410 - both are understood by every browser and by
+# Google.
+
+# the Android storefront used to live under a prefix, because the iOS store
+# needed the root. It does not any more.
+/android        /       301
+
+# the back office moved from /android-admin to /admin
+/android-admin  /admin  301
+
+# ---- retired with the iOS product -----------------------------------------
+/store     /  301
+/activate  /  301
+/install   /  301
+/panel     /  301

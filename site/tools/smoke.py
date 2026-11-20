@@ -27,9 +27,14 @@ import urllib.error
 import urllib.request
 
 PAGES = [
-    ("/android", True),
-    ("/android-admin", True),
+    ("/", True),
+    ("/admin", True),
 ]
+
+# URLs from before the iOS product was removed. They must answer with a
+# redirect, not a 404: a bookmark should land somewhere useful.
+RETIRED_AS_REDIRECTS = ["/store", "/activate", "/install", "/panel",
+                        "/android", "/android-admin"]
 
 # What the page needs in order to render versus what it merely links to.
 # A missing stylesheet or script makes the page broken; a missing nav target is
@@ -38,9 +43,9 @@ PAGES = [
 ASSET_SUFFIXES = (".css", ".js", ".mjs", ".svg", ".png", ".jpg", ".jpeg", ".gif",
                   ".ico", ".webmanifest", ".json", ".woff", ".woff2", ".txt", ".xml")
 
-# Assets the wider site serves, which an overlay deployment will not have and
-# which the page does not need in order to render.
-OPTIONAL = {"/store.js", "/api/buy"}
+# Served by the site itself, so a page referencing one is not a missing file.
+# Kept for the case where a deployment does not include them yet.
+OPTIONAL = {"/sitemap.xml", "/robots.txt"}
 
 
 def is_asset(path: str) -> bool:
@@ -72,17 +77,32 @@ def warn(msg: str) -> None:
     print(f"[warn] {msg}")
 
 
-def fetch(url: str, method: str = "GET", body: bytes | None = None, headers: dict | None = None):
+def fetch(url: str, method: str = "GET", body: bytes | None = None, headers: dict | None = None,
+          follow: bool = True):
     req = urllib.request.Request(url, data=body, method=method)
     req.add_header("User-Agent", UA)
     req.add_header("Accept", "*/*")
     for k, v in (headers or {}).items():
         req.add_header(k, v)
+
+    opener = None
+    if not follow:
+        # urllib follows redirects by default, which would report a 301 as the
+        # 200 it lands on and make a redirect loop look healthy.
+        class NoRedirect(urllib.request.HTTPRedirectHandler):
+            def redirect_request(self, *a, **kw):  # noqa: D102
+                return None
+
+        opener = urllib.request.build_opener(NoRedirect)
+
     try:
+        if opener is not None:
+            with opener.open(req, timeout=30) as r:
+                return r.status, r.headers.get("content-type", ""), r.read()
         with urllib.request.urlopen(req, timeout=30) as r:
             return r.status, r.headers.get("content-type", ""), r.read()
     except urllib.error.HTTPError as e:
-        return e.code, e.headers.get("content-type", "") if e.headers else "", e.read()
+        return e.code, (e.headers.get("content-type") if e.headers else "") or "", e.read()
     except Exception as e:  # noqa: BLE001
         return 0, "", str(e).encode()
 
@@ -148,27 +168,41 @@ def main() -> int:
         # A stylesheet is not decoration here: store.css carries the layout, and
         # the classes below are the ones the page cannot do without. Checking the
         # status alone would accept a 200 that is an error page or the wrong file.
-        if "/store.css" in assets:
-            st, ctype, body = fetch(base + "/store.css")
+        if "/site.css" in assets:
+            st, ctype, body = fetch(base + "/site.css")
             if st != 200:
-                bad(f"  /store.css -> {st}: the page has no layout (this is the"
+                bad(f"  /site.css -> {st}: the page has no layout (this is the"
                     f" 'plain HTML' symptom)")
             else:
                 css = body.decode("utf-8", "replace")
                 needed = [".wrap", ".nav", ".hero", ".pcard", ".activate"]
                 absent = [c for c in needed if c not in css]
                 if absent:
-                    bad(f"  /store.css loads but does not define {' '.join(absent)}"
+                    bad(f"  /site.css loads but does not define {' '.join(absent)}"
                         f" - the page will render wrong")
                 else:
-                    ok(f"  /store.css loads and defines {', '.join(needed)}")
+                    ok(f"  /site.css loads and defines {', '.join(needed)}")
 
+        # The drawer must be defined before the script that uses it, or the page
+        # loads with no way to draw a QR.
         scripts = script_order(html)
-        if "/qr.js" in scripts and "/android.js" in scripts:
-            if scripts.index("/qr.js") < scripts.index("/android.js"):
-                ok("  /qr.js is loaded before /android.js")
+        if "/qr.js" in scripts:
+            later = [s for s in scripts if s != "/qr.js"]
+            if all(scripts.index("/qr.js") < scripts.index(s) for s in later):
+                ok(f"  /qr.js loads first, before {', '.join(later) or 'nothing else'}")
             else:
-                bad("  /android.js loads before /qr.js - the drawer will not exist yet")
+                bad(f"  /qr.js must load before {', '.join(later)}")
+
+    # ---- the URLs that used to exist --------------------------------------
+    print()
+    for old in RETIRED_AS_REDIRECTS:
+        st, _, _ = fetch(base + old, "GET", follow=False)
+        if st in (301, 302, 307, 308):
+            ok(f"{old} -> {st} (redirected, not a dead end)")
+        elif st == 200:
+            warn(f"{old} -> 200: the old URL still serves a page of its own")
+        else:
+            bad(f"{old} -> {st}: an old link is dead")
 
     if a.skip_api:
         print()

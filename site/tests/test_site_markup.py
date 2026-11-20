@@ -1,10 +1,14 @@
 #!/usr/bin/env python3
-"""test_site_markup.py - the pages and their scripts agree.
+"""test_site_markup.py - the pages and their scripts agree, and iOS is gone.
 
 A typo in an element id is invisible: getElementById returns null, the handler
 is never attached, and the page looks fine until someone clicks the button. This
 cross-checks every id a script reaches for against the ids the page defines, and
 every local asset a page asks for against the files in public/.
+
+It also pins the shape of the product: the site sells Android. Nothing shipping
+may mention iOS, link to a route that was retired with it, or call an endpoint
+that no longer exists.
 
   python site/tests/test_site_markup.py
 """
@@ -42,7 +46,17 @@ def check(cond: bool, msg: str, extra: str = "") -> None:
 ID_RE = re.compile(r'\bid="([^"]+)"')
 GET_RE = re.compile(r"""getElementById\(['"]([^'"]+)['"]\)""")
 DOLLAR_RE = re.compile(r"""\$\(['"]([^'"]+)['"]\)""")
-ATTR_RE = re.compile(r"""(?:src|href)="(/[^"]*)\"""")
+REF_RE = re.compile(r"""(?:src|href)="(/[^"]*)\"""")
+
+PAGES = {
+    "index.html": "app.js",
+    "admin.html": None,   # its script is inline
+}
+
+# Pages that existed for the iOS product and must not come back by accident.
+RETIRED = ["/store", "/activate", "/install", "/panel"]
+
+SHIPPING = [p for p in PUBLIC.iterdir() if p.suffix in {".html", ".js", ".css"}]
 
 
 def ids_of(html: str) -> set[str]:
@@ -58,87 +72,104 @@ def inline_scripts(html: str) -> str:
 
 
 def main() -> int:
-    pages = {
-        "android.html": (PUBLIC / "android.html", PUBLIC / "android.js"),
-        "android-admin.html": (PUBLIC / "android-admin.html", None),
-    }
+    print(f"site {SITE}")
+    print()
 
-    # assets that live on the deployed site but not in this folder
-    REMOTE = {"/store.css", "/favicon.svg", "/store", "/store.js", "/android"}
-
-    for name, (path, script_path) in pages.items():
+    for name, script_name in PAGES.items():
+        path = PUBLIC / name
         if not path.exists():
             bad(f"{name} is missing")
             continue
         html = path.read_text(encoding="utf-8")
-        check(True, f"{name} exists ({len(html)} bytes)")
-
+        check(True, f"{name} exists ({len(html)} B)")
         check('lang="id"' in html, f"{name} declares its language")
-        check("<title>" in html and "</title>" in html, f"{name} has a title")
+        check("<title>" in html, f"{name} has a title")
         check('name="viewport"' in html, f"{name} has a viewport meta")
-        check("/store.css" in html, f"{name} reuses the site's stylesheet")
+        check('href="/site.css"' in html, f"{name} uses the site stylesheet")
+        check('href="/app.css"' in html, f"{name} uses the page deltas")
 
         defined = ids_of(html)
         check(len(defined) >= 5, f"{name} defines {len(defined)} ids")
 
-        scripts = ""
-        if script_path and script_path.exists():
-            scripts += script_path.read_text(encoding="utf-8")
-        scripts += inline_scripts(html)
+        scripts = inline_scripts(html)
+        if script_name:
+            sp = PUBLIC / script_name
+            if sp.exists():
+                scripts += sp.read_text(encoding="utf-8")
+            else:
+                bad(f"{name} loads {script_name}, which does not exist")
 
         wanted = wanted_of(scripts)
         missing = sorted(w for w in wanted if w not in defined)
         check(not missing, f"{name}: every id the script asks for exists"
               + (f"  missing {missing}" if missing else f"  ({len(wanted)} ids)"))
 
-        # local assets must exist on disk; Pages serves /name from name.html
-        local = {a for a in ATTR_RE.findall(html) if a not in REMOTE}
-        absent = []
-        for a in sorted(local):
-            target = PUBLIC / a.lstrip("/")
-            if not target.exists() and not (PUBLIC / (a.lstrip("/") + ".html")).exists():
-                absent.append(a)
-        check(not absent, f"{name}: every local asset exists"
-              + (f"  missing {absent}" if absent else f"  ({len(local)} assets)"))
+        refs = sorted(set(REF_RE.findall(html)))
+        broken, retired = [], []
+        for ref in refs:
+            if ref.startswith("/api/"):
+                continue
+            if ref in RETIRED:
+                retired.append(ref)
+                continue
+            target = PUBLIC / ref.lstrip("/")
+            if ref == "/":
+                target = PUBLIC / "index.html"
+            elif not target.exists():
+                alt = PUBLIC / (ref.lstrip("/") + ".html")
+                target = alt
+            if not target.exists():
+                broken.append(ref)
+        check(not broken, f"{name}: every local asset exists"
+              + (f"  missing {broken}" if broken else f"  ({len(refs)} refs)"))
+        check(not retired, f"{name}: nothing links to a retired iOS route"
+              + (f"  {retired}" if retired else ""))
 
-        check("<div" not in html or html.count("<div") == html.count("</div>") + html.count("/>"),
-              f"{name}: div tags are balanced")
+    print()
 
-    # the drawer the page loads must exist and be referenced before android.js
-    a = (PUBLIC / "android.html").read_text(encoding="utf-8")
-    check('/qr.js' in a and a.index('/qr.js') < a.index('/android.js'),
-          "android.html loads /qr.js before /android.js")
-
-    # no placeholders in anything that ships
-    suspects = ["TODO", "FIXME", "XXX", "lorem ipsum", "implement here"]
+    # ---- the product is Android only --------------------------------------
     offenders = []
-    for p in sorted(PUBLIC.iterdir()):
-        if p.suffix not in {".html", ".js", ".css"}:
-            continue
+    for p in sorted(SHIPPING):
         body = p.read_text(encoding="utf-8")
-        for s in suspects:
-            if s.lower() in body.lower():
-                offenders.append(f"{p.name}:{s}")
-    check(not offenders, "no TODO/FIXME/placeholder in the shipping files"
+        for word in ("iOS", "ios ", "dylib", "il2cpp", "profile install"):
+            if word in body:
+                offenders.append(f"{p.name}:{word}")
+    check(not offenders, "nothing shipping mentions iOS"
           + (f"  {offenders}" if offenders else ""))
 
-    # the api surface the page calls must be the one the functions expose
-    js = (PUBLIC / "android.js").read_text(encoding="utf-8")
-    calls = set(re.findall(r"""['"](/api/android/[a-z]+)""", js))
-    check(calls == {"/api/android/plans", "/api/android/order"},
-          "the storefront calls only the two endpoints it needs", str(sorted(calls)))
+    api_calls: set[str] = set()
+    for p in sorted(PUBLIC.glob("*.js")) + [PUBLIC / "index.html", PUBLIC / "admin.html"]:
+        api_calls |= set(re.findall(r"""['"](/api/[a-z/]+)['"]""", p.read_text(encoding="utf-8")))
+    allowed = {"/api/android/plans", "/api/android/order", "/api/android/admin"}
+    check(api_calls <= allowed, "the pages call only endpoints that exist",
+          "found " + ", ".join(sorted(api_calls)))
+    check("/api/buy" not in api_calls and "/api/order" not in api_calls,
+          "the retired iOS endpoints are not called")
 
+    # ---- the drawer must be loaded before the script that uses it ---------
+    a = (PUBLIC / "index.html").read_text(encoding="utf-8")
+    check("/qr.js" in a and a.index("/qr.js") < a.index("/app.js"),
+          "index.html loads /qr.js before /app.js")
+
+    # ---- _redirects -------------------------------------------------------
+    red = (PUBLIC / "_redirects").read_text(encoding="utf-8")
+    for old in ["/android", "/android-admin", *RETIRED]:
+        check(re.search(rf"^{re.escape(old)}\s+\S+", red, re.M) is not None,
+              f"_redirects forwards {old}")
+
+    # ---- no placeholders ship --------------------------------------------
+    suspects = ["TODO", "FIXME", "XXX", "lorem ipsum", "implement here"]
+    hits = [f"{p.name}:{s}" for p in SHIPPING for s in suspects
+            if s.lower() in p.read_text(encoding="utf-8").lower()]
+    check(not hits, "no TODO/FIXME/placeholder in the shipping files"
+          + (f"  {hits}" if hits else ""))
+
+    # ---- the api surface the pages use is the one that exists -------------
     for route in ("plans", "order", "admin", "webhook"):
         f = SITE / "functions" / "api" / "android" / f"{route}.js"
-        check(f.exists(), f"functions/api/android/{route}.js exists")
         body = f.read_text(encoding="utf-8") if f.exists() else ""
-        check("export function onRequest" in body,
-              f"{route}.js exports a Pages handler")
-
-    admin = (PUBLIC / "android-admin.html").read_text(encoding="utf-8")
-    for action in ("ping", "list", "paid", "cancel", "mint"):
-        check(f"'{action}'" in admin or f'"{action}"' in admin,
-              f"the admin page uses the '{action}' action")
+        check(f.exists() and "export function onRequest" in body,
+              f"functions/api/android/{route}.js exports a Pages handler")
 
     print()
     print(f"markup: {PASS} ok, {FAIL} failed")

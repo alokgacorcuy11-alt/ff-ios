@@ -65,8 +65,8 @@ SUITES = [
     ("site markup   ", ROOT / "site" / "tests" / "test_site_markup.py"),
     # the klikqris adapter against a local fake gateway: 6 response shapes
     ("site pay      ", ROOT / "site" / "tests" / "test_site_pay.py"),
-    # the installer, run against a fake project tree
-    ("site install  ", ROOT / "site" / "tests" / "test_site_install.py"),
+    # the deploy check, against deliberately broken trees
+    ("site deploy   ", ROOT / "site" / "tests" / "test_site_deploy.py"),
     # the deploy smoke test, against two loopback deployments
     ("site smoke    ", ROOT / "site" / "tests" / "test_site_smoke.py"),
 ]

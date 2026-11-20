@@ -136,6 +136,7 @@ package android.widget;
 public class ScrollView extends android.view.View {
     public ScrollView(android.content.Context c) {}
     public void addView(android.view.View v) {}
+    public void setFillViewport(boolean v) {}
 }
 """,
     "android/text/Editable.java": """
@@ -460,6 +461,9 @@ public class Handler {
     "android/view/View.java": """
 package android.view;
 public class View {
+    public static final int VISIBLE = 0;
+    public static final int INVISIBLE = 4;
+    public static final int GONE = 8;
     public View() {}
     public View(android.content.Context c) {}
     public void setBackgroundColor(int c) {}
@@ -468,6 +472,9 @@ public class View {
     public void setPadding(int a, int b, int c, int d) {}
     public void setEnabled(boolean e) {}
     public void setVisibility(int v) {}
+    public int getVisibility() { return VISIBLE; }
+    public void setMinimumWidth(int w) {}
+    public void setMinimumHeight(int h) {}
     public void setOnClickListener(OnClickListener l) {}
     public void setOnTouchListener(OnTouchListener l) {}
     public void postInvalidate() {}
@@ -522,6 +529,7 @@ public class TextView extends android.view.View {
     public void setGravity(int g) {}
     public void setMovementMethod(android.text.method.MovementMethod m) {}
     public void setTextIsSelectable(boolean b) {}
+    public void setMinWidth(int w) {}
     public android.text.Layout getLayout() { return null; }
     public int getLineCount() { return 0; }
 }
@@ -547,6 +555,7 @@ public class LinearLayout extends android.view.View {
         public static final int MATCH_PARENT = -1;
         public static final int WRAP_CONTENT = -2;
         public int topMargin;
+        public int rightMargin;
         public LayoutParams(int w, int h) {}
         public LayoutParams(int w, int h, float weight) {}
     }

@@ -15,6 +15,7 @@ import android.view.View;
 import android.widget.Button;
 import android.widget.EditText;
 import android.widget.LinearLayout;
+import android.widget.ScrollView;
 import android.widget.TextView;
 
 import com.alokg.ffmenu.mirror.MirrorPanel;
@@ -57,6 +58,9 @@ public class MainActivity extends Activity {
     private Button connect, stop, feed, panel, vision, install, mirror;
     private EditText keyIn;
     private Button activate;
+    /** The root-only tools, folded away so they cannot crowd out the two a buyer needs. */
+    private LinearLayout rootTools;
+    private Button rootToggle;
     private MemClient client;
     private volatile int gamePid;
     private volatile int daemonPid;
@@ -66,18 +70,28 @@ public class MainActivity extends Activity {
     protected void onCreate(Bundle b) {
         super.onCreate(b);
 
-        LinearLayout root = new LinearLayout(this);
-        root.setOrientation(LinearLayout.VERTICAL);
-        root.setBackgroundColor(Color.parseColor("#0d1117"));
-        int pad = dp(14);
-        root.setPadding(pad, pad, pad, pad);
+        int pad = dp(12);
+
+        LinearLayout column = new LinearLayout(this);
+        column.setOrientation(LinearLayout.VERTICAL);
+        column.setBackgroundColor(Color.parseColor("#0d1117"));
+        column.setPadding(pad, pad, pad, pad);
+
+        // Everything lives inside a scrolling viewport. A fixed column pushed
+        // its last row off the screen on a short phone, or as soon as the system
+        // font was turned up - which is what "the buttons are cut off" was.
+        // fillViewport keeps the log elastic when there IS room: it stretches
+        // into the leftover space instead of leaving a gap above the controls.
+        ScrollView scroller = new ScrollView(this);
+        scroller.setFillViewport(true);
+        scroller.setBackgroundColor(Color.parseColor("#0d1117"));
 
         TextView title = new TextView(this);
         title.setText("FF · mem bridge");
         title.setTextColor(Color.parseColor("#7ee787"));
         title.setTypeface(Typeface.MONOSPACE, Typeface.BOLD);
         title.setTextSize(18);
-        root.addView(title);
+        column.addView(title);
 
         out = new TextView(this);
         out.setTextColor(Color.parseColor("#c9d1d9"));
@@ -85,10 +99,14 @@ public class MainActivity extends Activity {
         out.setTextSize(12);
         out.setMovementMethod(new ScrollingMovementMethod());
         out.setTextIsSelectable(true);
+        // height 0 + weight 1: the log gives up its space before anything else
+        // does, and scrolls inside itself rather than growing and pushing the
+        // controls down. The minimum keeps it readable when space is tight.
+        out.setMinimumHeight(dp(140));
         LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f);
         lp.topMargin = pad;
-        root.addView(out, lp);
+        column.addView(out, lp);
 
         LinearLayout row = new LinearLayout(this);
         row.setOrientation(LinearLayout.HORIZONTAL);
@@ -181,37 +199,58 @@ public class MainActivity extends Activity {
                 LinearLayout.LayoutParams.WRAP_CONTENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT));
 
+        // ---- the key, then the two buttons a buyer actually needs -----------
         LinearLayout.LayoutParams kr = new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT);
         kr.topMargin = pad;
-        root.addView(keyRow, kr);
+        column.addView(keyRow, kr);
 
-        row.addView(connect, new LinearLayout.LayoutParams(0,
-                LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
-        row.addView(stop, new LinearLayout.LayoutParams(0,
-                LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
-        row.addView(feed, new LinearLayout.LayoutParams(0,
-                LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
-        row.addView(panel, new LinearLayout.LayoutParams(0,
-                LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
-        row.addView(vision, new LinearLayout.LayoutParams(0,
-                LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
-        root.addView(row);
+        LinearLayout primary = new LinearLayout(this);
+        primary.setOrientation(LinearLayout.HORIZONTAL);
+        primary.addView(install, cell());
+        primary.addView(mirror, cell());
+        column.addView(primary, spaced(dp(6)));
+
+        // One place to style every control. The material button style insists
+        // on an ~88dp minimum width; five of those do not fit across a phone, so
+        // labels came out as "CONNEC..." instead of being readable.
+        for (Button btn : new Button[]{connect, stop, feed, panel, vision,
+                install, mirror, activate}) {
+            btn.setTextSize(12);
+            btn.setMinWidth(0);
+            btn.setMinimumWidth(0);
+            btn.setPadding(dp(4), dp(2), dp(4), dp(2));
+        }
+
+        // ---- the root-only tools, folded away ------------------------------
+        row.addView(connect, cell());
+        row.addView(stop, cell());
+        row.addView(feed, cell());
 
         LinearLayout row2 = new LinearLayout(this);
         row2.setOrientation(LinearLayout.HORIZONTAL);
-        row2.addView(install, new LinearLayout.LayoutParams(0,
-                LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
-        row2.addView(mirror, new LinearLayout.LayoutParams(0,
-                LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
-        LinearLayout.LayoutParams r2 = new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT);
-        r2.topMargin = dp(6);
-        root.addView(row2, r2);
+        row2.addView(panel, cell());
+        row2.addView(vision, cell());
 
-        setContentView(root);
+        rootTools = new LinearLayout(this);
+        rootTools.setOrientation(LinearLayout.VERTICAL);
+        rootTools.setVisibility(View.GONE);
+        rootTools.addView(row);
+        rootTools.addView(row2);
+
+        rootToggle = new Button(this);
+        rootToggle.setText("root tools  (butuh root)");
+        rootToggle.setTextSize(11);
+        rootToggle.setMinWidth(0);
+        rootToggle.setMinimumWidth(0);
+        rootToggle.setPadding(dp(4), dp(2), dp(4), dp(2));
+        rootToggle.setOnClickListener(v -> toggleRootTools());
+        column.addView(rootToggle, spaced(dp(6)));
+        column.addView(rootTools);
+
+        scroller.addView(column);
+        setContentView(scroller);
         say("root: checking...");
         io.execute(() -> {
             boolean r = Root.available();
@@ -260,6 +299,38 @@ public class MainActivity extends Activity {
                 ui.post(() -> install.setEnabled(true));
             }
         });
+    }
+
+    // ---- layout helpers ---------------------------------------------------
+
+    /**
+     * One equal share of a row, with a small gutter.
+     *
+     * <p>minWidth 0 is set separately, on the buttons: the material style's
+     * ~88dp floor is what turned "CONNECT" into "CONNEC..." in a five-across
+     * row.
+     */
+    private LinearLayout.LayoutParams cell() {
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f);
+        lp.rightMargin = dp(4);
+        return lp;
+    }
+
+    private LinearLayout.LayoutParams spaced(int topMargin) {
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT);
+        lp.topMargin = topMargin;
+        return lp;
+    }
+
+    /** Shows or hides the root-only tools, and says which state it is in. */
+    private void toggleRootTools() {
+        boolean show = rootTools.getVisibility() != View.VISIBLE;
+        rootTools.setVisibility(show ? View.VISIBLE : View.GONE);
+        rootToggle.setText(show ? "root tools  (butuh root)  \u25b4"
+                : "root tools  (butuh root)  \u25be");
     }
 
     private void pickTree() {

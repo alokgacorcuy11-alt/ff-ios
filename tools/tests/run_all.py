@@ -35,6 +35,8 @@ SUITES = [
     ("lan config    ", HERE / "test_lan_config.py"),
     # compiles the app's Java against API stubs; no Android SDK needed
     ("app java      ", HERE / "test_java.py"),
+    # the layout must fit a phone: scrolls, no crowded row, keyboard resizes
+    ("ui fit        ", HERE / "test_ui_fit.py"),
     # parses a synthetic APK: binary manifest, DEX strings, libs, signature
     ("apk triage    ", HERE / "test_apk_triage.py"),
     # the publish gate: a built APK must carry the identity it was asked for

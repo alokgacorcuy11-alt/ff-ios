@@ -4,9 +4,11 @@ import android.app.Activity;
 import android.content.Intent;
 import android.graphics.Color;
 import android.graphics.Typeface;
+import android.net.Uri;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.provider.DocumentsContract;
 import android.text.method.ScrollingMovementMethod;
 import android.view.Gravity;
 import android.view.View;
@@ -14,6 +16,9 @@ import android.widget.Button;
 import android.widget.EditText;
 import android.widget.LinearLayout;
 import android.widget.TextView;
+
+import com.alokg.ffmenu.mirror.MirrorPanel;
+import com.alokg.ffmenu.mirror.Module;
 
 import java.io.File;
 import java.io.FileOutputStream;
@@ -39,6 +44,7 @@ public class MainActivity extends Activity {
     private static final String GAME_MAX = "com.dts.freefiremax";
     private static final String DAEMON_TMP = "/data/local/tmp/.ffmemd";
     private static final int REQ_CAPTURE = 0x51;
+    private static final int REQ_TREE = 0x52;
 
     private final ExecutorService io = Executors.newSingleThreadExecutor();
     private final Handler ui = new Handler(Looper.getMainLooper());
@@ -48,7 +54,7 @@ public class MainActivity extends Activity {
     private LanConfig lan;
 
     private TextView out;
-    private Button connect, stop, feed, panel, vision;
+    private Button connect, stop, feed, panel, vision, install, mirror;
     private EditText keyIn;
     private Button activate;
     private MemClient client;
@@ -136,6 +142,27 @@ public class MainActivity extends Activity {
             startActivityForResult(mpm.createScreenCaptureIntent(), REQ_CAPTURE);
         });
 
+        install = new Button(this);
+        install.setText("INSTALL");
+        install.setOnClickListener(v -> installModule());
+
+        mirror = new Button(this);
+        mirror.setText("MIRROR");
+        mirror.setOnClickListener(v -> {
+            if (!License.unlocked()) {
+                say("mirror: masukkan key dulu");
+                return;
+            }
+            if (MirrorPanel.needsPermission(this)) {
+                say("mirror: izin overlay belum ada - buka izinnya, lalu tekan MIRROR lagi");
+                startActivity(new Intent(
+                        android.provider.Settings.ACTION_MANAGE_OVERLAY_PERMISSION));
+                return;
+            }
+            MirrorPanel.toggle(this);
+            say(MirrorPanel.visible() ? "mirror: tampil" : "mirror: disembunyikan");
+        });
+
         keyIn = new EditText(this);
         keyIn.setHint("XXXX-XXXX-XXXX-XXXX-XXXX");
         keyIn.setTypeface(Typeface.MONOSPACE);
@@ -172,6 +199,18 @@ public class MainActivity extends Activity {
                 LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
         root.addView(row);
 
+        LinearLayout row2 = new LinearLayout(this);
+        row2.setOrientation(LinearLayout.HORIZONTAL);
+        row2.addView(install, new LinearLayout.LayoutParams(0,
+                LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
+        row2.addView(mirror, new LinearLayout.LayoutParams(0,
+                LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
+        LinearLayout.LayoutParams r2 = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT);
+        r2.topMargin = dp(6);
+        root.addView(row2, r2);
+
         setContentView(root);
         say("root: checking...");
         io.execute(() -> {
@@ -204,6 +243,44 @@ public class MainActivity extends Activity {
         lan.start();
     }
 
+    /**
+     * Two ways in, tried in the order that asks least of the user: a plain
+     * write first, and only when Android refuses, the system folder picker.
+     */
+    private void installModule() {
+        install.setEnabled(false);
+        io.execute(() -> {
+            try {
+                say(Module.installDirect(this));
+            } catch (Exception e) {
+                say("direct: " + e.getMessage());
+                say("direct ditolak - pilih folder lewat picker");
+                ui.post(this::pickTree);
+            } finally {
+                ui.post(() -> install.setEnabled(true));
+            }
+        });
+    }
+
+    private void pickTree() {
+        Intent i = new Intent(Intent.ACTION_OPEN_DOCUMENT_TREE);
+        i.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION
+                | Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+                | Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION);
+        try {
+            i.putExtra(DocumentsContract.EXTRA_INITIAL_URI,
+                    DocumentsContract.buildDocumentUri(
+                            "com.android.externalstorage.documents", Module.TREE_DOC));
+        } catch (Exception ignored) {
+            // older pickers ignore the hint and open at the root
+        }
+        try {
+            startActivityForResult(i, REQ_TREE);
+        } catch (Exception e) {
+            say("picker: " + e.getMessage());
+        }
+    }
+
     private void activateKey() {
         String device = android.provider.Settings.Secure.getString(
                 getContentResolver(), android.provider.Settings.Secure.ANDROID_ID);
@@ -214,6 +291,7 @@ public class MainActivity extends Activity {
             say("device id: " + (device == null ? "-" : device));
         }
         Panel.refresh();
+        MirrorPanel.refresh();
     }
 
     private int dp(int v) {
@@ -379,6 +457,29 @@ public class MainActivity extends Activity {
     @Override
     protected void onActivityResult(int request, int result, Intent data) {
         super.onActivityResult(request, result, data);
+        if (request == REQ_TREE) {
+            if (result != RESULT_OK || data == null || data.getData() == null) {
+                say("picker: dibatalkan");
+                return;
+            }
+            Uri tree = data.getData();
+            try {
+                getContentResolver().takePersistableUriPermission(tree,
+                        Intent.FLAG_GRANT_READ_URI_PERMISSION
+                                | Intent.FLAG_GRANT_WRITE_URI_PERMISSION);
+            } catch (Exception e) {
+                say("picker: izin tidak bisa disimpan (" + e.getMessage() + ")");
+            }
+            say("picker: " + tree);
+            io.execute(() -> {
+                try {
+                    say(Module.installTree(this, tree));
+                } catch (Exception e) {
+                    say("picker: " + e.getMessage());
+                }
+            });
+            return;
+        }
         if (request != REQ_CAPTURE) {
             return;
         }

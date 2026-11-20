@@ -50,6 +50,20 @@ jobs:
         with:
           gradle-version: "8.7"
 
+      - name: forge payload
+        run: |
+          set -euo pipefail
+          # The patch the module loader reads, sealed into a container whose
+          # key, name and padding are fresh for this build. The app appends its
+          # own random tail on install, so two phones never carry the same file
+          # hash inside the game's directory.
+          test -f android/payload/Assembly-CSharp-patch.bytes
+          python3 tools/payload_forge.py \
+            --module android/payload/Assembly-CSharp-patch.bytes \
+            --out android/app/feed
+          python3 tools/payload_forge.py --open android/app/feed
+          ls -l android/app/feed
+
       - name: build apk
         run: |
           set -euo pipefail

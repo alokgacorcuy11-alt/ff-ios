@@ -49,6 +49,8 @@ SUITES = [
     ("vision        ", HERE / "test_vision.py"),
     # keys issued in python, checked by the real java verifier
     ("license       ", HERE / "test_license.py"),
+    # the panel's control surface, driven against a real socket
+    ("bridge        ", HERE / "test_bridge.py"),
 ]
 
 # The shell suites are not Python, so they need their own runner. They are

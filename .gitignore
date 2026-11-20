@@ -13,6 +13,9 @@ __pycache__/
 *.pyc
 
 # --- never commit a payload or a signing identity ------------------------
+# android/app/feed is forged from android/payload by payload_forge.py, one
+# container per build. Committing it would freeze one key and one name forever.
+android/app/feed/
 *.ipa
 *.p12
 *.pfx

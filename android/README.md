@@ -741,6 +741,107 @@ The panel refuses to open past the lock row until a key verifies, and the vision
 loop returns immediately, so an unlicensed build draws nothing even if someone
 starts the capture by hand.
 
+## 8g. Mirror mode - driving a module that is already in the game
+
+This is the path the reference product actually uses, rebuilt with our own
+components. Nothing is injected by us: a patch file goes where the client's
+loader looks, the client loads it, and the module opens a control surface on
+loopback. Our app is the panel.
+
+```
+APK  ->  /storage/emulated/0/Android/data/com.dts.freefireth/files/
+             Assembly-CSharp-patch.bytes
+game ->  loads it at start, opens 127.0.0.1:7755
+APK  ->  GET /itemN  ->  the feature flips
+```
+
+**The item table is not sequential.** Read out of the reference panel's own
+if/else chain, pinned by `tools/tests/test_bridge.py`:
+
+| item | feature | item | feature |
+|---|---|---|---|
+| 1 | LOCK HEAD | 10 | ESP DISTANCE |
+| 2 | ESP LINE | 11 | AIM FOV |
+| 5 | DRAG HS 85% | 12 | NO RECOIL |
+| 6 | ESP NAME | 13 | HIDE AIM FOV |
+| 7 | ESP HEALTH | 14 | FAST SWITCH |
+| 8 | LOCK BADAN | 15 | NO SPREAD |
+| 9 | ESP SKELETON | 16 | FAST RELOAD |
+
+3 and 4 do not exist in 3.0. Renumbering them to close the gap moves every
+switch one row down and nothing works, which is why the test asserts the map
+rather than the count.
+
+`/fov/N` sets the aim FOV size, `/itemN/desativar` turns a feature off, and
+`/xyz/fov3-status` returns one line:
+
+```
+XYZFOV3|mode|players|valid|inFov|shot|sent|error
+```
+
+**The module only answers `Origin: https://patoteam.shop`.** Any other value
+and every call returns non-200 while the module is running fine. Worse, the
+obvious client silently drops that header - `Origin` is on the restricted list
+in both the JDK and Android `HttpURLConnection` - so the request goes out
+without it and the panel reports a dead module that is not dead. `Bridge`
+writes the request over a plain socket for exactly that reason. This is the
+single most expensive thing to rediscover at runtime.
+
+### Putting the file there
+
+`mirror/Module.java`, two routes, tried in order:
+
+1. **direct** - a plain file write into `Android/data/com.dts.freefireth/files`.
+   Works on Android 10 and below.
+2. **tree** - `ACTION_OPEN_DOCUMENT_TREE` with an initial URI pointing at that
+   folder. Android 11 closed `Android/data` to ordinary writes; the system
+   picker is still the sanctioned door. The grant is checked against
+   `primary:Android/data/com.dts.freefireth/files` and refused otherwise,
+   because a grant on the wrong tree writes a file nobody reads.
+
+Both write to a staging name, read it back, compare the digest, then rename. A
+truncated patch is worse than a missing one: the loader reads whatever is
+there.
+
+### Why the file has a random tail
+
+The patch is the same for every buyer. Written as-is, every install carries one
+identical file hash inside the game's own directory - the exact mistake that
+put the reference build on a list. `payload_forge.py --tail` (default 2048)
+appends random bytes after the patch, so two installs share no hash.
+`--tail 0` is there for the case where the loader turns out to validate the
+exact length.
+
+### What mirror mode still needs
+
+The client that loads the patch. That is not something the APK can supply: the
+loader, the assembly version it was built against and the module are one unit.
+Mirror mode drives a module; it cannot create the thing that hosts it.
+
+### Building it
+
+The patch lives in `android/payload/Assembly-CSharp-patch.bytes` - the payload
+read out of the reference build, 119,036 bytes, IFix for
+`Assembly-CSharp, Version=0.86.0.518`. Every build seals a fresh container from
+it:
+
+```bash
+python tools/payload_forge.py \
+    --module android/payload/Assembly-CSharp-patch.bytes \
+    --out android/app/feed
+python tools/payload_forge.py --open android/app/feed    # must say "matches"
+```
+
+CI does exactly this before Gradle, so the APK it publishes carries a payload.
+`android/app/feed/` is gitignored: committing it would freeze one key and one
+name for every build forever, which is the thing the forge exists to avoid.
+
+Two installs of the same APK still write different files, because the tail is
+generated on the phone. What does not differ is the patch itself - if the game
+hashes the file rather than the first bytes of it, the tail is what saves you;
+if it parses and hashes the module, no client-side trick changes that and the
+answer is a payload of our own, which needs the client assembly.
+
 ## 9. Files
 
 ```
@@ -787,7 +888,8 @@ tools/
    ├─ test_payload_forge.py the container: uniqueness, tamper, manifest
    ├─ test_feed.py          python forge <-> java transport over a real socket
    ├─ test_vision.py        the detector against frames whose answer is known
-   └─ test_license.py       keys issued in python, checked by the java verifier
+   ├─ test_license.py       keys issued in python, checked by the java verifier
+   └─ test_bridge.py        the module control surface, against a real socket
 ```
 
 The old iOS tree is not deleted from history: tag `ios-final` on `main` is the

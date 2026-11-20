@@ -44,6 +44,9 @@ SOURCES = [
     "com/alokg/ffmenu/vision/Capture.java",
     "com/alokg/ffmenu/vision/AimService.java",
     "com/alokg/ffmenu/vision/BoxOverlay.java",
+    "com/alokg/ffmenu/mirror/Bridge.java",
+    "com/alokg/ffmenu/mirror/Module.java",
+    "com/alokg/ffmenu/mirror/MirrorPanel.java",
 ]
 
 # Every stub member below exists in the real API with the same signature. If a
@@ -56,6 +59,7 @@ public class Context {
     public static final String WINDOW_SERVICE = "window";
     public static final String MEDIA_PROJECTION_SERVICE = "media_projection";
     public Object getSystemService(String name) { return null; }
+    public android.content.Context getApplicationContext() { return null; }
     public android.content.ContentResolver getContentResolver() { return null; }
     public android.content.res.AssetManager getAssets() { return null; }
     public android.content.res.Resources getResources() { return null; }
@@ -79,7 +83,60 @@ public final class Settings {
 """,
     "android/content/ContentResolver.java": """
 package android.content;
-public class ContentResolver {}
+public class ContentResolver {
+    public java.io.OutputStream openOutputStream(android.net.Uri u, String mode)
+            throws java.io.FileNotFoundException { return null; }
+    public java.io.InputStream openInputStream(android.net.Uri u)
+            throws java.io.FileNotFoundException { return null; }
+    public void takePersistableUriPermission(android.net.Uri u, int flags) {}
+}
+""",
+    "android/net/Uri.java": """
+package android.net;
+public class Uri {}
+""",
+    "android/os/Environment.java": """
+package android.os;
+public class Environment {
+    public static java.io.File getExternalStorageDirectory() { return null; }
+}
+""",
+    "android/provider/DocumentsContract.java": """
+package android.provider;
+public final class DocumentsContract {
+    public static final String EXTRA_INITIAL_URI = "android.provider.extra.INITIAL_URI";
+    public static String getTreeDocumentId(android.net.Uri tree) { return null; }
+    public static android.net.Uri buildDocumentUriUsingTree(android.net.Uri tree, String id) {
+        return null;
+    }
+    public static android.net.Uri buildDocumentUri(String authority, String id) { return null; }
+    public static android.net.Uri createDocument(android.content.ContentResolver r,
+            android.net.Uri parent, String mime, String name) { return null; }
+    public static boolean deleteDocument(android.content.ContentResolver r, android.net.Uri d) {
+        return true;
+    }
+}
+""",
+    "android/view/ViewGroup.java": """
+package android.view;
+public class ViewGroup extends View {
+    public static class LayoutParams {}
+}
+""",
+    "android/graphics/drawable/GradientDrawable.java": """
+package android.graphics.drawable;
+public class GradientDrawable {
+    public void setColor(int c) {}
+    public void setCornerRadius(float r) {}
+    public void setStroke(int w, int c) {}
+}
+""",
+    "android/widget/ScrollView.java": """
+package android.widget;
+public class ScrollView extends android.view.View {
+    public ScrollView(android.content.Context c) {}
+    public void addView(android.view.View v) {}
+}
 """,
     "android/text/Editable.java": """
 package android.text;
@@ -110,6 +167,7 @@ public class MotionEvent {
     public static final int ACTION_UP = 1;
     public static final int ACTION_MOVE = 2;
     public int getAction() { return 0; }
+    public int getActionMasked() { return 0; }
     public float getRawX() { return 0f; }
     public float getRawY() { return 0f; }
 }
@@ -138,12 +196,19 @@ public interface WindowManager {
     "android/content/Intent.java": """
 package android.content;
 public class Intent {
+    public static final String ACTION_OPEN_DOCUMENT_TREE = "android.intent.action.OPEN_DOCUMENT_TREE";
+    public static final int FLAG_GRANT_READ_URI_PERMISSION = 1;
+    public static final int FLAG_GRANT_WRITE_URI_PERMISSION = 2;
+    public static final int FLAG_GRANT_PERSISTABLE_URI_PERMISSION = 64;
     public Intent() {}
     public Intent(String action) {}
     public Intent(Context c, Class<?> cls) {}
+    public Intent addFlags(int flags) { return this; }
     public Intent putExtra(String k, int v) { return this; }
     public Intent putExtra(String k, String v) { return this; }
     public Intent putExtra(String k, Intent v) { return this; }
+    public Intent putExtra(String k, android.net.Uri v) { return this; }
+    public android.net.Uri getData() { return null; }
     public int getIntExtra(String k, int d) { return d; }
     public Intent getParcelableExtra(String k) { return null; }
 }
@@ -388,6 +453,8 @@ package android.os;
 public class Handler {
     public Handler(Looper l) {}
     public boolean post(Runnable r) { return true; }
+    public boolean postDelayed(Runnable r, long ms) { return true; }
+    public void removeCallbacksAndMessages(Object token) {}
 }
 """,
     "android/view/View.java": """
@@ -396,6 +463,8 @@ public class View {
     public View() {}
     public View(android.content.Context c) {}
     public void setBackgroundColor(int c) {}
+    public void setBackground(android.graphics.drawable.GradientDrawable d) {}
+    public void setLayoutParams(android.view.ViewGroup.LayoutParams p) {}
     public void setPadding(int a, int b, int c, int d) {}
     public void setEnabled(boolean e) {}
     public void setVisibility(int v) {}
@@ -412,6 +481,7 @@ public class View {
     "android/view/Gravity.java": """
 package android.view;
 public class Gravity {
+    public static final int CENTER = 17;
     public static final int CENTER_VERTICAL = 16;
     public static final int TOP = 48;
     public static final int START = 8388611;
@@ -449,6 +519,7 @@ public class TextView extends android.view.View {
     public void setTypeface(android.graphics.Typeface t) {}
     public void setTypeface(android.graphics.Typeface t, int style) {}
     public void setTextSize(float s) {}
+    public void setGravity(int g) {}
     public void setMovementMethod(android.text.method.MovementMethod m) {}
     public void setTextIsSelectable(boolean b) {}
     public android.text.Layout getLayout() { return null; }
@@ -472,7 +543,7 @@ public class LinearLayout extends android.view.View {
     public void addView(android.view.View v, LayoutParams p) {}
     public void removeAllViews() {}
     public void setGravity(int g) {}
-    public static class LayoutParams {
+    public static class LayoutParams extends android.view.ViewGroup.LayoutParams {
         public static final int MATCH_PARENT = -1;
         public static final int WRAP_CONTENT = -2;
         public int topMargin;

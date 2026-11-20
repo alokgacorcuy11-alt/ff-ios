@@ -107,7 +107,8 @@ def open_container(container: bytes, master: bytes, name: str) -> bytes:
     return plain[padlen:]
 
 
-def forge(module: bytes, out: Path, port: int | None = None) -> dict:
+def forge(module: bytes, out: Path, port: int | None = None,
+          tail: int = 2048) -> dict:
     out.mkdir(parents=True, exist_ok=True)
     master = secrets.token_bytes(32)
     name = secrets.token_hex(8)
@@ -125,6 +126,11 @@ def forge(module: bytes, out: Path, port: int | None = None) -> dict:
         "container_sha256": hashlib.sha256(container).hexdigest(),
         "module_size": len(module),
         "module_sha256": hashlib.sha256(module).hexdigest(),
+        # Bytes the app appends after the decrypted module. The module itself is
+        # identical for every buyer; without a random tail every install would
+        # write the same file hash into the game's directory. 0 disables it for
+        # a loader that turns out to care about the exact length.
+        "tail": tail,
     }
     (out / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
     return manifest
@@ -134,6 +140,8 @@ def main(argv: list[str]) -> int:
     ap = argparse.ArgumentParser(description="forge a per-install payload container")
     ap.add_argument("--module", type=Path, help="the .so or blob to ship")
     ap.add_argument("--out", type=Path, help="where to write container.bin + manifest.json")
+    ap.add_argument("--tail", type=int, default=2048,
+                    help="random bytes the app appends after the module (0 = none)")
     ap.add_argument("--open", dest="open_dir", type=Path,
                     help="verify and decode an existing feed directory")
     ap.add_argument("--dump", type=Path, help="where to write the decoded module")
@@ -164,7 +172,7 @@ def main(argv: list[str]) -> int:
 
     if args.out is None:
         ap.error("--out is required unless --open is used")
-    man = forge(module, args.out)
+    man = forge(module, args.out, tail=args.tail)
     print("container  %d bytes" % man["container_size"])
     print("name       %s" % man["name"])
     print("port       %d" % man["port"])

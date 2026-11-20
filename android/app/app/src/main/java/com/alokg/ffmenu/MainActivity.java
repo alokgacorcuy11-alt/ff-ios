@@ -302,6 +302,12 @@ public class MainActivity extends Activity {
         if (!withTail) {
             say("INSTALL: mode tanpa tail (byte referensi)");
         }
+        // Say which game and which folder, so a test cannot be run against the
+        // wrong target: Free Fire MAX (com.dts.freefiremax) has its own folder
+        // and this module does not belong in it.
+        say("game: " + Module.GAME + "  folder "
+                + (new File(Module.dir()).isDirectory() ? "ada" : "BELUM ada")
+                + ": " + Module.dir());
         install.setEnabled(false);
         io.execute(() -> {
             try {

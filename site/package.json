@@ -1,0 +1,11 @@
+{
+  "name": "demios-android-site",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Android storefront + order API for demios.pages.dev",
+  "scripts": {
+    "test": "python tests/run_site_tests.py",
+    "mint": "node tools/mint.mjs"
+  }
+}

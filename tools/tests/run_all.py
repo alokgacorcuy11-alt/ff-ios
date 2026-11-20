@@ -51,6 +51,18 @@ SUITES = [
     ("license       ", HERE / "test_license.py"),
     # the panel's control surface, driven against a real socket
     ("bridge        ", HERE / "test_bridge.py"),
+    # the android storefront: keys minted by the site, checked by License.java
+    ("site keys     ", ROOT / "site" / "tests" / "test_site_key.py"),
+    # the QR encoder, compared bit-for-bit with a reference implementation
+    ("site qr       ", ROOT / "site" / "tests" / "test_site_qr.py"),
+    # static QRIS -> dynamic amount, CRC and TLV order
+    ("site qris     ", ROOT / "site" / "tests" / "test_site_qris.py"),
+    # the four Pages Functions, driven against a fake KV
+    ("site api      ", ROOT / "site" / "tests" / "test_site_api.py"),
+    # public/qr.js drawn into a recording canvas, matrix rebuilt from it
+    ("site draw     ", ROOT / "site" / "tests" / "test_site_draw.py"),
+    # every id a script reaches for exists in the page, every asset exists
+    ("site markup   ", ROOT / "site" / "tests" / "test_site_markup.py"),
 ]
 
 # The shell suites are not Python, so they need their own runner. They are

@@ -1,0 +1,39 @@
+# ===== site/wrangler.toml - the blocks the Android storefront needs =====
+#
+# This is a fragment, not a whole config. The Pages project already exists and
+# already has a name and an output directory; pasting this file over the top
+# would rename it and break the iOS store. Merge the three blocks below into the
+# existing wrangler.toml (or add the KV binding and vars in the dashboard, which
+# needs no file at all).
+#
+# Check what you have first:
+#   wrangler pages project list
+#   wrangler kv namespace list
+
+# ---- keep whatever name/output dir the project already uses ----------------
+# name = "demios"
+# pages_build_output_dir = "web/public"
+
+# ---- the namespace that holds Android orders -------------------------------
+# Reuse an existing namespace if one is already bound (the iOS orders live in
+# one too). Only the binding name matters to the code: DEMIOS_KV, or ORDERS, or
+# STORE_KV, or KV - functions/_lib/orders.js tries all four in that order.
+[[kv_namespaces]]
+binding = "DEMIOS_KV"
+id = "<paste the id from `wrangler kv namespace list`>"
+
+# ---- plain configuration ---------------------------------------------------
+[vars]
+PAY_MODE = "manual"          # manual | klikqris
+ORDER_RATE_PER_HOUR = "30"   # per IP; 0 disables the cap
+
+# ---- secrets (never in this file) -----------------------------------------
+#   wrangler pages secret put LICENSE_SECRET --project-name <project>
+#   wrangler pages secret put ADMIN_SECRET   --project-name <project>
+#   wrangler pages secret put QRIS_STATIC    --project-name <project>
+#   wrangler pages secret put WEBHOOK_SECRET --project-name <project>   (optional)
+#   wrangler pages secret put KLIKQRIS_KEY   --project-name <project>   (only for PAY_MODE=klikqris)
+#
+# LICENSE_SECRET must be byte-identical to License.SECRET in
+# android/app/app/src/main/java/com/alokg/ffmenu/License.java. Change one
+# without the other and every key the site sells is dead on arrival.

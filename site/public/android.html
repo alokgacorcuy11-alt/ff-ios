@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#05060A">
+<title>DEMIOS // FREE FIRE ANDROID</title>
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@600;800;900&family=Rajdhani:wght@500;600;700&family=JetBrains+Mono:wght@400;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/store.css">
+<link rel="stylesheet" href="/android.css">
+</head>
+<body>
+<div class="fx" aria-hidden="true"></div>
+<div class="scan" aria-hidden="true"></div>
+
+<div class="ticker" aria-hidden="true"><div class="ticker-track" id="tick"></div></div>
+
+<main class="wrap">
+
+  <nav class="nav">
+    <a href="/android" class="brand">
+      <span class="logo">D</span>
+      <span class="glitch" data-t="DEMIOS">DEMIOS</span>
+    </a>
+    <span class="ver">ANDROID</span>
+    <span class="nav-dot" aria-hidden="true"></span>
+    <span class="nav-state">NO ROOT</span>
+    <a href="/store" class="nav-admin">iOS</a>
+    <a href="#pasang" class="nav-admin" style="margin-left:0">PASANG</a>
+    <a href="/android-admin" class="nav-admin" style="margin-left:0">ADMIN</a>
+  </nav>
+
+  <header class="hero">
+    <span class="kick"><span class="blip"></span>ANDROID BUILD &middot; ARM64 &middot; TANPA ROOT</span>
+    <h1 class="glitch big" data-t="DEMIOS">DEMIOS</h1>
+    <p class="sub">Free Fire &mdash; <b>ESP</b> &amp; <b>AIMBOT</b> di Android. Satu APK, tempel key, panel muncul di atas game.</p>
+
+    <div class="term">
+      <div class="term-bar"><span class="dots"><i></i><i></i><i></i></span>demios@android &mdash; sh</div>
+      <pre class="term-body" id="boot" aria-live="polite"></pre>
+      <div class="stat">
+        <span>MODE <b class="on">MIRROR</b></span>
+        <span>BUILD <b>1.0</b></span>
+        <span>ROOT <b class="on">NONE</b></span>
+      </div>
+    </div>
+  </header>
+
+  <section class="dl" aria-label="Unduh APK">
+    <div class="dl-l">
+      <span class="dl-k">APK</span>
+      <strong class="dl-name">ffmenu.apk</strong>
+      <span class="dl-meta" id="apkMeta">622 KB &middot; android 8+ &middot; arm64</span>
+    </div>
+    <a class="btn primary dl-btn" id="dlBtn"
+       href="https://github.com/alokgacorcuy11-alt/ff-ios/raw/build/ffmenu.apk"
+       rel="noopener">DOWNLOAD APK</a>
+    <code class="dl-hash" id="apkHash">sha256 &middot; memuat&hellip;</code>
+  </section>
+
+  <section id="plans" class="plans" aria-busy="true" aria-label="Paket lisensi">
+    <div class="loading">// loading packages.</div>
+  </section>
+
+  <section id="order" class="order hidden" aria-live="polite" aria-label="Pesanan">
+    <div class="order-head">
+      <h2 class="sec-t">// checkout</h2>
+      <span class="st pending" id="oStatus">menunggu</span>
+    </div>
+    <div class="orow"><span>PAKET</span><b id="oPlan">&mdash;</b></div>
+    <div class="orow"><span>TOTAL</span><b id="oAmount" class="amount">&mdash;</b></div>
+    <div class="orow"><span>ORDER ID</span><code id="oId">&mdash;</code></div>
+    <div class="orow"><span>BAYAR DALAM</span><code id="oTimer">&mdash;</code></div>
+    <div id="oPay" class="opay"></div>
+    <div id="oKey" class="keybox hidden">
+      <span class="klabel">KEY KAMU</span>
+      <code id="oKeyVal"></code>
+      <button id="copyKey" class="btn primary" type="button">SALIN KEY</button>
+    </div>
+    <p class="hint" id="oHint"></p>
+    <div class="oacts">
+      <button id="check" class="btn ghost" type="button">CEK STATUS</button>
+      <button id="again" class="btn ghost hidden" type="button">BUAT PESANAN BARU</button>
+    </div>
+  </section>
+
+  <section id="pasang" class="proto" aria-label="Cara pakai">
+    <div class="pstep"><span class="pn">01</span><h3>UNDUH &amp; PASANG</h3><p>Buka APK-nya, izinkan instal dari sumber ini.</p></div>
+    <div class="pstep"><span class="pn">02</span><h3>TEMPEL KEY</h3><p>Buka app, tempel key, tekan ACTIVE.</p></div>
+    <div class="pstep"><span class="pn">03</span><h3>PASANG MODUL</h3><p>Tekan INSTALL, pilih folder <code>Android/data/com.dts.freefireth/files</code>.</p></div>
+    <div class="pstep"><span class="pn">04</span><h3>BUKA GAME</h3><p>Buka Free Fire, tekan MIRROR, panel muncul di atas game.</p></div>
+  </section>
+
+  <section class="req" aria-label="Syarat">
+    <h2 class="sec-t">// yang perlu kamu tahu</h2>
+    <ul>
+      <li><span class="k">[+]</span>Android 8 ke atas, arm64. Tanpa root, tanpa virtual space, tanpa Shizuku, tanpa VPN.</li>
+      <li><span class="k">[+]</span>Butuh Free Fire build yang memuat modul <code>Assembly-CSharp 0.86.0.518</code>. Kalau modulnya tidak ada, app bilang &ldquo;modul tidak tersedia&rdquo; &mdash; bukan diam-diam gagal.</li>
+      <li><span class="k">[+]</span>Key mengikat ke 1 HP kalau kamu isi Android ID saat checkout. Kosongkan kalau mau bisa dipakai pindah HP.</li>
+      <li><span class="k">[+]</span>Kalau pakai Magisk: aktifkan DenyList untuk <code>com.dts.freefireth</code>, dan sembunyikan nama app Magisk.</li>
+      <li><span class="k off">[&ndash;]</span>Tidak ada yang namanya &ldquo;undetectable&rdquo;. Yang bisa dijanjikan: tidak ada file dengan hash yang sama di dua HP, dan tidak ada kode kita di dalam APK game.</li>
+    </ul>
+  </section>
+
+  <footer class="foot">
+    <span class="fbrand">DEMIOS&nbsp;//</span>
+    <span>ANDROID &middot; NOT AFFILIATED WITH GARENA</span>
+    <span id="netInfo" class="net"></span>
+  </footer>
+
+</main>
+<script src="/qr.js"></script>
+<script src="/android.js"></script>
+</body>
+</html>

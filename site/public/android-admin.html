@@ -1,0 +1,282 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#05060A">
+<meta name="robots" content="noindex,nofollow">
+<title>DEMIOS // ANDROID ADMIN</title>
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@600;800;900&family=Rajdhani:wght@500;600;700&family=JetBrains+Mono:wght@400;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/store.css">
+<link rel="stylesheet" href="/android.css">
+</head>
+<body>
+<div class="fx" aria-hidden="true"></div>
+
+<main class="wrap">
+
+  <nav class="nav">
+    <a href="/android" class="brand">
+      <span class="logo">D</span>
+      <span class="glitch" data-t="DEMIOS">DEMIOS</span>
+    </a>
+    <span class="ver">ADMIN</span>
+    <span class="nav-dot" aria-hidden="true"></span>
+    <span class="nav-state">ANDROID</span>
+    <a href="/android" class="nav-admin">TOKO</a>
+  </nav>
+
+  <header class="hero" style="padding-bottom:10px">
+    <span class="kick"><span class="blip"></span>BACK OFFICE &middot; PESANAN &amp; KEY</span>
+    <h1 class="glitch big" data-t="ADMIN" style="font-size:clamp(34px,7vw,64px)">ADMIN</h1>
+    <p class="sub">Setujui pembayaran, key terbit sendiri. Semua di sini butuh <code style="color:var(--red)">ADMIN_SECRET</code>.</p>
+  </header>
+
+  <section class="ad-login">
+    <label class="ad-label" for="secret">ADMIN SECRET</label>
+    <div class="ad-row">
+      <input id="secret" class="ad-input" type="password" autocomplete="current-password" placeholder="ADMIN_SECRET dari wrangler">
+      <button id="save" class="btn primary" type="button">MASUK</button>
+    </div>
+    <p class="hint" id="loginHint">// disimpan di sessionStorage, hilang saat tab ditutup.</p>
+  </section>
+
+  <section id="panel" class="hidden">
+    <div class="ad-tabs" role="tablist">
+      <button class="ad-tab on" data-status="pending" type="button">MENUNGGU</button>
+      <button class="ad-tab" data-status="paid" type="button">LUNAS</button>
+      <button class="ad-tab" data-status="" type="button">SEMUA</button>
+      <button class="ad-tab" data-status="__mint" type="button">MINT</button>
+    </div>
+
+    <div class="ad-bar">
+      <span class="ad-cfg" id="cfg">// config belum dibaca</span>
+      <button id="refresh" class="btn ghost" type="button">REFRESH</button>
+    </div>
+
+    <div id="list" class="ad-list" aria-live="polite"></div>
+
+    <section id="mintBox" class="ad-mint hidden">
+      <h2 class="sec-t">// terbitkan key manual</h2>
+      <div class="ad-grid">
+        <label class="ad-label">HARI<input id="mDays" class="ad-input" type="number" min="0" value="30"></label>
+        <label class="ad-label">TIER<input id="mTier" class="ad-input" type="number" min="0" max="15" value="1"></label>
+        <label class="ad-label">ANDROID ID (opsional)<input id="mDevice" class="ad-input" placeholder="kosong = bebas device"></label>
+      </div>
+      <button id="mint" class="btn primary" type="button">TERBITKAN</button>
+      <div id="mintOut" class="ad-out"></div>
+    </section>
+  </section>
+
+  <footer class="foot">
+    <span class="fbrand">DEMIOS&nbsp;//</span>
+    <span>ANDROID ADMIN</span>
+    <span id="netInfo" class="net"></span>
+  </footer>
+
+</main>
+
+<script>
+(() => {
+  const $ = (id) => document.getElementById(id);
+  const rp = (n) => 'Rp' + Number(n).toLocaleString('id-ID');
+  const esc = (s) => String(s == null ? '' : s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  const SS = 'demios_admin_secret';
+
+  let status = 'pending';
+  let timer = null;
+
+  const secret = () => sessionStorage.getItem(SS) || $('secret').value.trim();
+
+  async function api(action, extra) {
+    const r = await fetch('/api/android/admin', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-admin-secret': secret() },
+      body: JSON.stringify({ secret: secret(), action, ...(extra || {}) }),
+    });
+    const j = await r.json().catch(() => null);
+    if (!r.ok) throw new Error((j && j.error) || ('HTTP ' + r.status));
+    return j;
+  }
+
+  function age(ms) {
+    const s = Math.max(0, Math.round((Date.now() - ms) / 1000));
+    if (s < 60) return s + 's';
+    if (s < 3600) return Math.round(s / 60) + 'm';
+    return Math.round(s / 3600) + 'j';
+  }
+
+  function time(ms) {
+    if (!ms) return '\u2014';
+    return new Date(ms).toLocaleString('id-ID', { hour12: false });
+  }
+
+  async function ping() {
+    try {
+      const j = await api('ping');
+      const bad = [];
+      if (j.kv !== 'bound') bad.push('KV: ' + j.kv);
+      if (!/^valid/.test(j.qris) && j.payMode === 'manual') bad.push('QRIS: ' + j.qris);
+      if (j.licenseSecret !== 'set') bad.push('SECRET: ' + j.licenseSecret);
+      $('cfg').innerHTML = bad.length
+        ? '<span style="color:var(--bad)">' + bad.map(esc).join(' &middot; ') + '</span>'
+        : '<span style="color:var(--ok)">siap</span> &middot; bayar: ' + esc(j.payMode)
+          + ' &middot; webhook: ' + esc(j.webhookSecret);
+      $('netInfo').textContent = 'KV ' + String(j.kv).slice(0, 12).toUpperCase();
+    } catch (e) {
+      $('cfg').innerHTML = '<span style="color:var(--bad)">' + esc(e.message) + '</span>';
+    }
+  }
+
+  function row(o) {
+    const el = document.createElement('div');
+    el.className = 'ad-item st-' + o.status;
+
+    const head = document.createElement('div');
+    head.className = 'ad-head';
+    head.innerHTML = '<code>' + esc(o.orderId) + '</code>'
+      + '<span class="st ' + esc(o.status) + '">' + esc(o.status) + '</span>';
+
+    const meta = document.createElement('div');
+    meta.className = 'ad-meta';
+    meta.innerHTML = '<b>' + esc(o.label || o.plan) + '</b> &middot; ' + rp(o.amount)
+      + ' &middot; ' + esc(age(o.createdAt)) + ' lalu'
+      + (o.device ? ' &middot; device ' + esc(o.device) : '')
+      + '<br><span class="ad-dim">' + esc(time(o.createdAt)) + '</span>';
+
+    el.append(head, meta);
+
+    if (o.key) {
+      const k = document.createElement('div');
+      k.className = 'ad-key';
+      k.innerHTML = '<code>' + esc(o.key) + '</code>';
+      const b = document.createElement('button');
+      b.className = 'btn ghost';
+      b.type = 'button';
+      b.textContent = 'SALIN';
+      b.addEventListener('click', async () => {
+        try { await navigator.clipboard.writeText(o.key); } catch {
+          const ta = document.createElement('textarea');
+          ta.value = o.key; document.body.append(ta); ta.select();
+          document.execCommand('copy'); ta.remove();
+        }
+        b.textContent = 'OK'; setTimeout(() => { b.textContent = 'SALIN'; }, 1200);
+      });
+      k.append(b);
+      el.append(k);
+    }
+
+    if (o.status === 'pending') {
+      const acts = document.createElement('div');
+      acts.className = 'ad-acts';
+      const yes = document.createElement('button');
+      yes.className = 'btn primary';
+      yes.type = 'button';
+      yes.textContent = 'SUDAH BAYAR \u2192 TERBITKAN KEY';
+      yes.addEventListener('click', async () => {
+        yes.disabled = true;
+        yes.textContent = 'MENERBITKAN\u2026';
+        try {
+          const j = await api('paid', { orderId: o.orderId });
+          yes.textContent = j.key;
+        } catch (e) {
+          alert(e.message);
+          yes.disabled = false;
+          yes.textContent = 'SUDAH BAYAR \u2192 TERBITKAN KEY';
+        }
+        load();
+      });
+      const no = document.createElement('button');
+      no.className = 'btn ghost';
+      no.type = 'button';
+      no.textContent = 'BATALKAN';
+      no.addEventListener('click', async () => {
+        if (!confirm('Batalkan ' + o.orderId + '?')) return;
+        try { await api('cancel', { orderId: o.orderId, note: 'dibatalkan admin' }); }
+        catch (e) { alert(e.message); }
+        load();
+      });
+      acts.append(yes, no);
+      el.append(acts);
+    }
+
+    return el;
+  }
+
+  async function load() {
+    if (status === '__mint') {
+      $('list').classList.add('hidden');
+      $('mintBox').classList.remove('hidden');
+      return;
+    }
+    $('mintBox').classList.add('hidden');
+    $('list').classList.remove('hidden');
+
+    try {
+      const j = await api('list', { status: status || undefined, limit: 100 });
+      const box = $('list');
+      box.textContent = '';
+      if (!j.orders.length) {
+        box.innerHTML = '<div class="loading">// tidak ada pesanan.</div>';
+        return;
+      }
+      for (const o of j.orders) box.append(row(o));
+    } catch (e) {
+      $('list').innerHTML = '<div class="loading" style="color:var(--bad)">// ' + esc(e.message) + '</div>';
+    }
+  }
+
+  $('save').addEventListener('click', () => {
+    const s = $('secret').value.trim();
+    if (!s) return;
+    sessionStorage.setItem(SS, s);
+    $('panel').classList.remove('hidden');
+    $('loginHint').textContent = '// secret disimpan di tab ini.';
+    ping();
+    load();
+    if (timer) clearInterval(timer);
+    timer = setInterval(load, 10000);
+  });
+
+  $('refresh').addEventListener('click', () => { ping(); load(); });
+
+  document.querySelectorAll('.ad-tab').forEach((tab) => {
+    tab.addEventListener('click', () => {
+      document.querySelectorAll('.ad-tab').forEach((t) => t.classList.remove('on'));
+      tab.classList.add('on');
+      status = tab.dataset.status;
+      load();
+    });
+  });
+
+  $('mint').addEventListener('click', async () => {
+    const out = $('mintOut');
+    out.textContent = 'menerbitkan\u2026';
+    try {
+      const j = await api('mint', {
+        days: Number($('mDays').value),
+        tier: Number($('mTier').value),
+        device: $('mDevice').value.trim(),
+      });
+      out.innerHTML = '<code>' + esc(j.key) + '</code>';
+    } catch (e) {
+      out.textContent = e.message;
+    }
+  });
+
+  const saved = sessionStorage.getItem(SS);
+  if (saved) {
+    $('secret').value = saved;
+    $('panel').classList.remove('hidden');
+    $('loginHint').textContent = '// secret disimpan di tab ini.';
+    ping();
+    load();
+    timer = setInterval(load, 10000);
+  }
+})();
+</script>
+</body>
+</html>

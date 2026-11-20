@@ -11,6 +11,7 @@ on:
     branches: [main]
     paths:
       - "android/**"
+      - "site/**"
       - "tools/**"
       - ".github/workflows/android.yml"
   workflow_dispatch:
@@ -43,6 +44,9 @@ jobs:
 
       - name: tests
         run: |
+          # the site's QR encoder is checked bit-for-bit against this one, and
+          # it is pure python with no build step
+          python3 -m pip install --quiet qrcode
           # runs the daemon for real: abstract socket, /proc, pread/pwrite
           python3 tools/tests/run_all.py
 

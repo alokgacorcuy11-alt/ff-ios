@@ -12,7 +12,7 @@ not replace anything that is already there.
 site/
   functions/
     _lib/
-      key.js        key minting - the same 20-char format as keygen.py
+      key.js        key minting - the same 24-char format as keygen.py
       qris.js       static QRIS -> dynamic QRIS with the order's amount
       qr.js         QR encoder (byte mode, EC level M, v1-v20), no dependencies
       orders.js     order records in KV, token auth, mint-on-approve
@@ -35,6 +35,7 @@ site/
     mint.mjs            mint/verify a key from the command line
     pay_probe.mjs       ask a live gateway to make one QR and report the shape
     qris_from_image.py  decode a QRIS screenshot into the payload string
+    qris_static.mjs     recover a merchant template from a dynamic payload
     qr_probe.mjs        encoder dump used by the tests
     qris_probe.mjs      QRIS builder dump used by the tests
   tests/                7 suites, wired into tools/tests/run_all.py
@@ -188,6 +189,31 @@ before a buyer sees it.
 **Do not** put a per-order amount into `QRIS_STATIC` - the site inserts tag 54
 itself and will replace whatever is there.
 
+### If you only have a dynamic code
+
+A static code and a dynamic one for the same merchant differ in exactly two
+fields: tag 01 (`11` vs `12`) and tag 54 (absent vs the amount). So any dynamic
+QRIS the same merchant issues contains the template:
+
+```bash
+node site/tools/qris_static.mjs --image qris_from_your_own_store.png
+# amount in the payload : 40313.00  (2 decimals)
+# template              : 00020101021126...
+# rebuild with the amount: byte-identical, CRC included
+```
+
+It does not trust itself: after recovering the template it puts the same amount
+back and requires the bytes to come out identical, CRC included. If they do not,
+it prints which tag moved and exits 1. That round trip is why the recovered
+template can be used with confidence - it is the acquirer's own arithmetic, not
+a guess about which merchant fields to keep.
+
+Set `QRIS_DECIMALS=0` if the acquirer writes whole rupiah; the observed ones
+(DANA/KlikQRIS) write two decimals, so that is the default.
+
+Keep the result out of the repository. A template identifies the merchant
+underneath it.
+
 ---
 
 ## 4. Daily use - `/android-admin`
@@ -210,10 +236,18 @@ the row.
 
 ### Making approval exact
 
-Two pending orders of the same plan have the same amount, so matching a payment
-to an order is by time and amount. If that becomes ambiguous, add a few rupiah
-per plan in `site/functions/_lib/plans.js` - or turn on `PAY_MODE=klikqris` so
-the gateway settles orders itself.
+Every order gets its own amount: the plan price plus a three-digit code
+(`a:seq` in KV, 100-999, advancing per order). A 140.000 plan is charged as
+140.101, then 140.102, and so on. The admin sees the amount in the merchant app
+and in `/android-admin`, and the two match without guessing from a timestamp.
+
+This is what the reference store does, and it is the single biggest difference
+in daily operation: without it, two pending orders of the same plan owe the same
+rupiah and approval becomes a judgement call.
+
+The buyer is told the amount is exact - the checkout shows the base price and
+the payable amount separately, and the note says the last three digits are the
+order's own code.
 
 ---
 
@@ -394,7 +428,7 @@ not just unit-tested. What was actually run and what came back:
 |---|---|
 | `GET /android`, `/android-admin` | 200, `text/html` |
 | `GET /api/android/plans` | 200, `ready:false`, reason `QRIS_STATIC is not set`, 3 plans |
-| `POST /api/android/order {"plan":"a7d"}` | 200, `AND-XXXXXX`, 24-hex token, amount 140000, QR absent with an honest note |
+| `POST /api/android/order {"plan":"a7d"}` | 200, `AND-XXXXXX`, 24-hex token, `price 140000`, `amount 140101`, QR matrix present |
 | `GET /api/android/order?id=..&token=..` | 200, `pending`, no key |
 | wrong token | 404 `no such order` |
 | `POST admin {action:"ping"}` | 200, `kv: bound`, `licenseSecret: set`, `webhookSecret: missing (webhooks disabled)` |
@@ -408,9 +442,20 @@ not just unit-tested. What was actually run and what came back:
 | the same key, in `keygen.py` | `ok (tier 1)` |
 | the same key, in `key.js` | `{"ok":true,"left":7}` |
 | `GET /api/android/_env` after cleanup | 404 - the temporary diagnostic is gone |
+| the QR the page received, rasterised and scanned with an independent decoder | decodes to a valid QRIS payload, CRC valid |
+| that payload's tag 54 | `140101.00`, exactly the order's amount (140000 + code 101) |
+| that payload's merchant fields (26, 51, 59, 60) | identical to `QRIS_STATIC` - the money reaches the same merchant |
 
 The last three matter most: a key minted by the live site verifies in the Java
-class that ships inside the APK. That is the whole sale, in one line.
+class that ships inside the APK, and a QR the live site sends is one a wallet can
+read, for exactly the right amount, at the right merchant. That is the whole
+sale, in three lines.
+
+Finding one of those was also the point of building it. Minting two orders for
+the same plan produced the *same* key twice, because the payload was a pure
+function of (tier, expiry, device) - one leaked key would have opened the product
+for every buyer of that plan that day. The payload now carries a nonce, minting
+without one is refused, and two tests assert that two orders never share a key.
 
 The test orders were then deleted from KV, so the queue starts empty.
 

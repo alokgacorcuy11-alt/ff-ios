@@ -164,7 +164,7 @@ public class MainActivity extends Activity {
         });
 
         keyIn = new EditText(this);
-        keyIn.setHint("XXXX-XXXX-XXXX-XXXX-XXXX");
+        keyIn.setHint("XXXX-XXXX-XXXX-XXXX-XXXX-XXXX");
         keyIn.setTypeface(Typeface.MONOSPACE);
         keyIn.setTextSize(12);
         keyIn.setTextColor(Color.parseColor("#c9d1d9"));

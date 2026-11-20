@@ -9,16 +9,18 @@ import javax.crypto.spec.SecretKeySpec;
 /**
  * Activation keys, checked on the device with no server round trip.
  *
- * <p>A key is 20 characters in five groups. The layout and the arithmetic are
- * duplicated in tools/keygen.py, and tools/tests/test_license.py issues keys in
- * Python and verifies them here, so the two cannot drift apart silently.
+ * <p>A key is 24 characters in six groups. The layout and the arithmetic are
+ * duplicated in tools/keygen.py and site/functions/_lib/key.js, and the tests
+ * issue keys in Python and in JavaScript and verify them here, so the three
+ * cannot drift apart silently.
  *
  * <pre>
  *   alphabet   23456789ABCDEFGHJKLMNPQRSTUVWXYZ   (no 0/O/1/I)
- *   payload    12 chars = 7 bytes
+ *   payload    16 chars = 10 bytes
  *              b0       version (high nibble) | tier (low nibble)
  *              b1..b2   expiry in days since 2026-01-01, LE. 0 = never
  *              b3..b6   device hash, LE. 0 = any device
+ *              b7..b9   nonce, LE. makes every issued key a different string
  *   mac        8 chars = 5 bytes = HMAC-SHA256(secret, payload)[0:5]
  * </pre>
  *
@@ -38,8 +40,9 @@ public final class License {
     public static final String SECRET = "YPZ6SPRGEEJXHF7CWXNQURYLTDY8NU487U3RP27C67QDSUXM";
 
     private static final String ALPHABET = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ";
-    private static final int VERSION = 1;
-    private static final int PAYLOAD_CHARS = 12;
+    private static final int VERSION = 2;
+    private static final int PAYLOAD_CHARS = 16;
+    private static final int PAYLOAD_BYTES = 10;
     private static final int MAC_CHARS = 8;
     /** 2026-01-01T00:00:00Z, the same day keygen.py counts from. */
     private static final long EPOCH_MS = 1767225600000L;
@@ -95,14 +98,14 @@ public final class License {
         }
         String body = key.replace("-", "").replace(" ", "").toUpperCase();
         if (body.length() != PAYLOAD_CHARS + MAC_CHARS) {
-            return new Status(false, "a key is 20 characters, this one is "
-                    + body.length(), 0, -1);
+            return new Status(false, "a key is " + (PAYLOAD_CHARS + MAC_CHARS)
+                    + " characters, this one is " + body.length(), 0, -1);
         }
 
         byte[] payload;
         byte[] mac;
         try {
-            payload = b32(body.substring(0, PAYLOAD_CHARS), 7);
+            payload = b32(body.substring(0, PAYLOAD_CHARS), PAYLOAD_BYTES);
             mac = b32(body.substring(PAYLOAD_CHARS), 5);
         } catch (IllegalArgumentException e) {
             return new Status(false, e.getMessage(), 0, -1);
@@ -119,6 +122,9 @@ public final class License {
             return new Status(false, "the signature does not match", 0, -1);
         }
 
+        // bytes 7..9 are the nonce: what makes every issued key a different
+        // string. It is covered by the signature, so it cannot be edited, and
+        // nothing here needs to read it - it is carried, not interpreted.
         int device = (payload[3] & 0xff)
                 | ((payload[4] & 0xff) << 8)
                 | ((payload[5] & 0xff) << 16)
@@ -174,22 +180,31 @@ public final class License {
         return out;
     }
 
-    /** Fixed-width base32, five bits per character, no padding. */
+    /**
+     * Fixed-width base32, five bits per character, MSB first, trailing bits
+     * dropped.
+     *
+     * <p>Deliberately not a {@code long} accumulator: the payload is 16
+     * characters = 80 bits, which does not fit in a long, and a shift-based
+     * version silently loses the high bits and decodes the version nibble as 0.
+     * This fills the output byte by byte instead.
+     */
     static byte[] b32(String text, int outLen) {
-        int total = text.length() * 5;
-        long bits = 0;
+        byte[] out = new byte[outLen];
+        int limit = outLen * 8;
+        int bitPos = 0;
         for (int i = 0; i < text.length(); i++) {
             int idx = ALPHABET.indexOf(text.charAt(i));
             if (idx < 0) {
                 throw new IllegalArgumentException("not in the alphabet: " + text.charAt(i));
             }
-            bits = (bits << 5) | idx;
-        }
-        bits >>= (total - outLen * 8);
-        byte[] out = new byte[outLen];
-        for (int i = outLen - 1; i >= 0; i--) {
-            out[i] = (byte) (bits & 0xff);
-            bits >>= 8;
+            for (int b = 4; b >= 0; b--) {
+                int bit = (idx >>> b) & 1;
+                if (bitPos < limit && bit != 0) {
+                    out[bitPos >> 3] |= (byte) (1 << (7 - (bitPos & 7)));
+                }
+                bitPos++;
+            }
         }
         return out;
     }

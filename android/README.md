@@ -704,24 +704,34 @@ Two hazards worth knowing before this is used in anger:
 ## 8f. Keys - install, type, unlocked
 
 `tools/keygen.py` issues, `License.java` verifies, on the device, with no
-server round trip. Twenty characters in five groups:
+server round trip. Twenty-four characters in six groups:
 
 ```
-XXXX-XXXX-XXXX-XXXX-XXXX
+XXXX-XXXX-XXXX-XXXX-XXXX-XXXX
 ```
 
 ```
 alphabet   23456789ABCDEFGHJKLMNPQRSTUVWXYZ   (no 0/O/1/I)
-payload    12 chars = 7 bytes
+payload    16 chars = 10 bytes
            b0       version | tier
            b1..b2   expiry in days since 2026-01-01, LE. 0 = never
            b3..b6   device hash, LE. 0 = any device
+           b7..b9   nonce, LE. what makes every key a different string
 mac        8 chars = 5 bytes = HMAC-SHA256(secret, payload)[0:5]
 ```
+
+The nonce is load-bearing. Without it the payload is a function of
+(tier, expiry, device) alone, so every key issued for one plan on one day is the
+same string - two buyers would get the same key and one leaked key would open
+the product for everyone buying that plan that day. The site passes a counter
+(`a:keyseq` in KV); the CLI defaults to a random value and `--nonce` overrides
+it. `mint()` in `key.js` refuses to run without one, so this cannot come back by
+accident.
 
 ```bash
 python tools/keygen.py --secret "<secret>" --days 30            # any device
 python tools/keygen.py --secret "<secret>" --days 30 --device <android_id>
+python tools/keygen.py --secret "<secret>" --days 30 --nonce 41
 python tools/keygen.py --secret "<secret>" --verify <key>
 ```
 

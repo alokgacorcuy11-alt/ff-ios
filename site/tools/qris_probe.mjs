@@ -1,5 +1,6 @@
 // ===== tools/qris_probe.mjs - exercise the QRIS builder for the python test =====
-import { crc16, parse, build, withAmount, valid, amountOf, isQris } from '../functions/_lib/qris.js';
+import { crc16, parse, build, withAmount, valid, amountOf, isQris, toTemplate }
+  from '../functions/_lib/qris.js';
 
 // A tiny independent TLV assembler. Deliberately does not import from qris.js:
 // the fixture must not be built by the code that is being tested.
@@ -52,11 +53,15 @@ out.dynamicAmount = amountOf(dyn);
 out.dynamicPmi = (parse(dyn).find((t) => t.tag === '01') || {}).value;
 out.dynamicTags = parse(dyn).map((t) => t.tag);
 
-// 4. amount sits between currency (53) and the next tag, exactly once
+// 4. amount sits after currency (53) and is the last root tag, immediately
+//    before the CRC - which is what the observed acquirer does, and what makes
+//    a recovered template reproduce its payloads byte for byte
 const tags = out.dynamicTags;
 out.amountPosition = tags.indexOf('54');
 out.amountOnce = tags.filter((t) => t === '54').length;
 out.amountAfter53 = tags.indexOf('54') > tags.indexOf('53');
+out.amountLastRoot = tags[tags.length - 2] === '54';
+out.tags = tags;
 out.amountBefore58 = tags.indexOf('54') < tags.indexOf('58');
 
 // 5. re-applying replaces the amount instead of appending a second one
@@ -101,5 +106,39 @@ for (const amount of [1000, 25000, 40000, 140000, 300000, 999999]) {
   seen.add(p);
 }
 out.sweep = { distinct: seen.size, allValid };
+
+// 11. recovering the merchant template from a dynamic payload.
+//
+//     A static and a dynamic code for one merchant differ in exactly two fields:
+//     tag 01 (11 vs 12) and tag 54 (absent vs the amount). So a dynamic payload
+//     hands back the template, and the proof is that putting the amount back
+//     reproduces the original bytes - CRC included. This is the same property
+//     tools/qris_static.mjs relies on for a live payload from a real acquirer.
+{
+  const dyn3 = withAmount(STATIC, 40313, { decimals: 2 });
+  const tpl = toTemplate(dyn3);
+  const back = withAmount(tpl, 40313, { decimals: 2 });
+  out.template = {
+    dyn: dyn3,
+    tpl,
+    back,
+    tplIsStatic: (parse(tpl).find((t) => t.tag === '01') || {}).value === '11',
+    tplHasNoAmount: !parse(tpl).some((t) => t.tag === '54'),
+    tplValid: valid(tpl),
+    tplIsQris: isQris(tpl),
+    identical: back === dyn3,
+    tplEqualsStatic: tpl === STATIC,
+  };
+}
+
+// 12. the two-decimal form the acquirer writes
+{
+  const p2 = withAmount(STATIC, 140000, { decimals: 2 });
+  out.decimals = {
+    two: (parse(p2).find((t) => t.tag === '54') || {}).value,
+    zero: (parse(withAmount(STATIC, 140000)).find((t) => t.tag === '54') || {}).value,
+    amountOfTwo: amountOf(p2),
+  };
+}
 
 process.stdout.write(JSON.stringify(out));

@@ -98,12 +98,15 @@ export function isQris(text) {
 }
 
 /**
- * Static payload -> dynamic payload carrying `amount` rupiah.
+ * Format an amount the way a QRIS acquirer writes it.
  *
- * Tag 01 becomes 12 (dynamic), tag 54 is inserted in order, the old CRC is
- * dropped and a new one sealed. Returns the new payload string.
+ * integers by default ("140000"), which every wallet reads. `decimals: 2` writes
+ * "140000.00", which is what DANA/KlikQRIS issue - useful because it lets a
+ * derived static template reproduce the acquirer's own dynamic payload
+ * byte-for-byte, CRC included. That round trip is the proof that the template is
+ * right, so the option exists.
  */
-export function withAmount(staticPayload, amount) {
+export function formatAmount(amount, decimals = 0) {
   const rp = Math.round(Number(amount));
   if (!Number.isFinite(rp) || rp <= 0) {
     throw new Error('qris: amount must be a positive number of rupiah');
@@ -111,6 +114,17 @@ export function withAmount(staticPayload, amount) {
   if (rp > 9999999999999) {
     throw new Error('qris: amount is larger than the field allows');
   }
+  return decimals === 2 ? rp.toFixed(2) : String(rp);
+}
+
+/**
+ * Static payload -> dynamic payload carrying `amount` rupiah.
+ *
+ * Tag 01 becomes 12 (dynamic), tag 54 is inserted in order, the old CRC is
+ * dropped and a new one sealed. Returns the new payload string.
+ */
+export function withAmount(staticPayload, amount, opts = {}) {
+  const text = formatAmount(amount, opts.decimals === 2 ? 2 : 0);
 
   const items = parse(staticPayload).filter((t) => t.tag !== '63' && t.tag !== '54');
 
@@ -133,11 +147,33 @@ export function withAmount(staticPayload, amount) {
   if (pmi) pmi.value = '12';
   else items.unshift({ tag: '01', value: '12' });
 
-  // root tags ascend; 54 belongs after 53 (currency) and before 55/56/57/58
-  let at = items.findIndex((t) => Number(t.tag) > 54);
-  if (at < 0) at = items.length;
-  items.splice(at, 0, { tag: '54', value: String(rp) });
+  // Tag 54 goes last, immediately before the CRC.
+  //
+  // The EMVCo spec wants root tags ascending, which would put 54 between 53
+  // (currency) and 58 (country). The observed acquirer (DANA/KlikQRIS) appends
+  // it at the end instead, and every wallet reads those codes. Matching the
+  // acquirer is worth more than matching the spec's ordering, because it makes
+  // the payload byte-identical to the one it issues for the same merchant - and
+  // that identity is what proves a recovered template is correct. Wallets scan
+  // tags; they do not enforce the order.
+  items.push({ tag: '54', value: text });
 
+  return seal(items);
+}
+
+/**
+ * Dynamic payload -> the static merchant template behind it.
+ *
+ * Tag 01 back to 11, tag 54 removed, CRC resealed. This is how a static code is
+ * recovered from any dynamic QR the acquirer issued for the same merchant: the
+ * two differ only in those two fields, so the template is exact rather than
+ * reconstructed by hand. tools/qris_static.mjs proves it by putting the amount
+ * back and comparing byte for byte.
+ */
+export function toTemplate(dynamicPayload) {
+  const items = parse(dynamicPayload).filter((t) => t.tag !== '63' && t.tag !== '54');
+  const pmi = items.find((t) => t.tag === '01');
+  if (pmi) pmi.value = '11';
   return seal(items);
 }
 

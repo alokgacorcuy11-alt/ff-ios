@@ -72,7 +72,8 @@ def main() -> int:
 
     check(d["amountOnce"] == 1, "exactly one tag 54 in the dynamic code")
     check(d["amountAfter53"], "tag 54 sits after currency (53)")
-    check(d["amountBefore58"], "tag 54 sits before country (58)")
+    check(d["amountLastRoot"],
+          "tag 54 is the last root tag, right before the CRC (tags: " + " ".join(d["tags"]) + ")")
     check(d["merchantSame"], "merchant account, MCC, name, city are byte-identical")
     check(d["lengthsOk"], "parse -> build reproduces both payloads exactly")
 
@@ -87,6 +88,21 @@ def main() -> int:
 
     check(d["sweep"]["distinct"] == 6 and d["sweep"]["allValid"],
           "six amounts -> six distinct, valid payloads")
+
+    # ---- recovering the merchant template ---------------------------------
+    t = d["template"]
+    check(t["tplIsStatic"], "the recovered template is point-of-initiation 11")
+    check(t["tplHasNoAmount"], "and carries no tag 54")
+    check(t["tplValid"] and t["tplIsQris"], "the recovered template is a valid QRIS code")
+    check(t["tplEqualsStatic"], "recovering the template returns the original static payload")
+    check(t["identical"],
+          "putting the amount back reproduces the dynamic payload byte for byte, CRC included")
+
+    # ---- the acquirer's two-decimal form ----------------------------------
+    check(d["decimals"]["two"] == "140000.00",
+          f"decimals:2 writes {d['decimals']['two']} (the acquirer's own format)")
+    check(d["decimals"]["zero"] == "140000", "and the default writes whole rupiah")
+    check(d["decimals"]["amountOfTwo"] == 140000, "both read back as the same amount")
 
     # the dynamic payload must be small enough to fit a QR at level M
     check(len(d["dynamic"]) <= 666,

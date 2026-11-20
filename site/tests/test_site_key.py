@@ -82,12 +82,13 @@ def node(*args: str) -> dict:
         return {"ok": False, "error": out[-300:]}
 
 
-def py_issue(secret: str, days: int, tier: int, device_id: str, today: date) -> str:
+def py_issue(secret: str, days: int, tier: int, device_id: str, today: date,
+             nonce: int = 0) -> str:
     """keygen.py's arithmetic with the day pinned, so it is comparable."""
     dev = kg.device_hash(secret, device_id)
-    payload = kg.payload_bytes(kg.VERSION, tier, days, dev, today=today)
+    payload = kg.payload_bytes(kg.VERSION, tier, days, dev, nonce, today=today)
     mac = hmac.new(secret.encode(), payload, hashlib.sha256).digest()[:5]
-    body = kg.b32_encode(payload, 12) + kg.b32_encode(mac, 8)
+    body = kg.b32_encode(payload, kg.PAYLOAD_CHARS) + kg.b32_encode(mac, kg.MAC_CHARS)
     return "-".join(body[i:i + 4] for i in range(0, len(body), 4))
 
 
@@ -132,7 +133,18 @@ def main() -> int:
     minted = node("mint", "--secret", secret, "--days", "30", "--tier", "1")
     check(minted.get("ok"), "node mints a key", str(minted.get("error", "")))
     key = minted["key"]
-    check(len(key) == 24 and key.count("-") == 4, "key is five groups of four", key)
+    check(len(key) == 29 and key.count("-") == 5, "key is six groups of four", key)
+    check(minted.get("nonce") is not None, "the site reports the nonce it used",
+          str(minted.get("nonce")))
+
+    # two mints of the same plan on the same day must not be the same key
+    second = node("mint", "--secret", secret, "--days", "30", "--tier", "1")
+    check(second.get("key") and second["key"] != key,
+          "a second mint of the same plan yields a different key", second.get("key", ""))
+    check(second.get("nonce") != minted.get("nonce"), "because the nonce differs",
+          f"{minted.get('nonce')} vs {second.get('nonce')}")
+    check(jrun("verify", second["key"], "").startswith("OK"),
+          "and java accepts it too")
 
     want_day = (now_ms - EPOCH_MS) // 86400000
     check(abs(minted["day"] - want_day) <= 1,
@@ -148,11 +160,13 @@ def main() -> int:
     # ---- 3. exactness against keygen.py -----------------------------------
     today = datetime.fromtimestamp(now_ms / 1000, tz=timezone.utc).date()
     mismatches = []
-    for days, tier, dev in ((30, 1, ""), (7, 2, "a1b2c3d4e5f6a7b8"),
-                            (0, 1, ""), (1, 3, "ZZZZZZZZZZZZZZZZ"),
-                            (365, 2, "99887766ffeeddcc")):
-        want = py_issue(secret, days, tier, dev, today)
-        args = ["mint", "--secret", secret, "--days", str(days), "--tier", str(tier)]
+    for i, (days, tier, dev) in enumerate(((30, 1, ""), (7, 2, "a1b2c3d4e5f6a7b8"),
+                                           (0, 1, ""), (1, 3, "ZZZZZZZZZZZZZZZZ"),
+                                           (365, 2, "99887766ffeeddcc"))):
+        nonce = 4096 + i
+        want = py_issue(secret, days, tier, dev, today, nonce)
+        args = ["mint", "--secret", secret, "--days", str(days), "--tier", str(tier),
+                "--nonce", str(nonce)]
         if dev:
             args += ["--device", dev]
         got = node(*args).get("key")
@@ -160,6 +174,11 @@ def main() -> int:
             mismatches.append((days, tier, dev, want, got))
     check(not mismatches, "node and keygen.py mint identical keys for 5 shapes",
           "" if not mismatches else str(mismatches[:2]))
+
+    # a nonce of 0 is a legitimate value, not a missing one
+    want0 = py_issue(secret, 30, 1, "", today, 0)
+    got0 = node("mint", "--secret", secret, "--days", "30", "--tier", "1", "--nonce", "0").get("key")
+    check(got0 == want0, "nonce 0 works and matches keygen.py", str(got0))
 
     # ---- 4. device binding -------------------------------------------------
     dev_a, dev_b = "a1b2c3d4e5f6a7b8", "99887766ffeeddcc"
@@ -224,9 +243,11 @@ def main() -> int:
           f"node and java reach the same verdict on {agree}/{len(verdicts)} keys")
 
     # ---- 8. the admin fingerprint is stable and short ---------------------
-    a = node("mint", "--secret", secret, "--days", "30")["fingerprint"]
-    b = node("mint", "--secret", secret, "--days", "30")["fingerprint"]
+    a = node("mint", "--secret", secret, "--days", "30", "--nonce", "77")["fingerprint"]
+    b = node("mint", "--secret", secret, "--days", "30", "--nonce", "77")["fingerprint"]
+    c = node("mint", "--secret", secret, "--days", "30", "--nonce", "78")["fingerprint"]
     check(len(a) == 8 and a == b, "fingerprint is 8 hex chars and deterministic", a)
+    check(a != c, "and two different keys have different fingerprints", a + " vs " + c)
 
     shutil.rmtree(tmp, ignore_errors=True)
     print()

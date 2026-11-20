@@ -10,6 +10,7 @@ import { onRequest as orderFn } from '../functions/api/android/order.js';
 import { onRequest as adminFn } from '../functions/api/android/admin.js';
 import { onRequest as webhookFn } from '../functions/api/android/webhook.js';
 import { withAmount, valid, amountOf } from '../functions/_lib/qris.js';
+import { payload as qrPayload } from '../functions/_lib/qr.js';
 import { verify as verifyKey } from '../functions/_lib/key.js';
 
 // ---- fake KV ---------------------------------------------------------------
@@ -121,7 +122,9 @@ async function main() {
     check(/^AND-[23456789ABCDEFGHJKLMNPQRSTUVWXYZ]{6}$/.test(r.json.orderId),
       'order id is AND- plus six unambiguous characters', r.json.orderId);
     check(/^[0-9a-f]{24}$/.test(r.json.token), 'token is 24 hex characters');
-    check(r.json.amount === 140000, 'amount comes from the plan table', String(r.json.amount));
+    check(r.json.price === 140000, 'price comes from the plan table', String(r.json.price));
+    check(r.json.amount - r.json.price >= 100 && r.json.amount - r.json.price <= 999,
+      'the amount carries a three-digit unique code', 'Rp' + r.json.amount + ' = 140000+' + r.json.unique);
     check(r.json.status === 'pending', 'status starts pending');
     check(r.json.configured === true, 'payment is configured');
     check(r.json.qr && r.json.qr.size > 20 && r.json.qr.bits.length > 100,
@@ -130,16 +133,38 @@ async function main() {
       'the order lives 30 minutes');
   }
 
-  // ---- 3. the QR carries the amount -------------------------------------
+  // ---- 3. the QR carries this order's amount, uniquely -------------------
   {
-    const dyn = withAmount(STATIC, 140000);
-    check(valid(dyn) && amountOf(dyn) === 140000, 'the dynamic payload holds 140000');
-    // same matrix the server produced? re-encode and compare sizes at least;
-    // the bits themselves are checked in test_site_qr.py
+    const dyn = withAmount(STATIC, created.amount, { decimals: 2 });
+    check(valid(dyn) && amountOf(dyn) === created.amount,
+      'a dynamic payload for this order holds its exact amount', String(amountOf(dyn)));
+    const want = qrPayload(dyn);
+    check(want.size === created.qr.size && want.bits === created.qr.bits,
+      'the QR matrix the server sent is exactly that payload', want.size + 'x' + want.size);
+
     const m = unpackMatrix(created.qr.size, created.qr.bits);
     check(m.length === created.qr.size * created.qr.size, 'QR bits unpack to a full matrix');
     check(m.filter(Boolean).length > m.length * 0.3 && m.filter(Boolean).length < m.length * 0.7,
       'the matrix is roughly half dark, as a QR should be');
+  }
+
+  // ---- 3b. two orders of one plan get different amounts ------------------
+  {
+    const e = makeEnv();   // its own KV, so the sections below see what they expect
+    const a = await order(e, { plan: 'a7d' });
+    const b = await order(e, { plan: 'a7d' });
+    check(a.json.amount !== b.json.amount,
+      'two orders of the same plan owe different amounts',
+      a.json.amount + ' vs ' + b.json.amount);
+    check(b.json.unique - a.json.unique === 1,
+      'the unique code advances by one', a.json.unique + ' -> ' + b.json.unique);
+    const list = await admin(e, { action: 'list', secret: ADMIN, status: 'pending' });
+    const amounts = list.json.orders.map((o) => o.amount);
+    check(new Set(amounts).size === amounts.length,
+      'every pending order has a distinct amount', amounts.join(', '));
+    const paid = await admin(e, { action: 'paid', orderId: b.json.orderId, secret: ADMIN });
+    check(paid.json.key && paid.json.amount === b.json.amount,
+      'approving the right order mints its key', String(paid.json.amount));
   }
 
   // ---- 4. poll ----------------------------------------------------------
@@ -177,7 +202,7 @@ async function main() {
   {
     const r = await admin(env, { action: 'paid', orderId: created.orderId, secret: ADMIN });
     check(r.status === 200 && r.json.ok, 'admin can mark paid');
-    check(/^[2-9A-Z]{4}(-[2-9A-Z]{4}){4}$/.test(r.json.key), 'a key was minted', r.json.key);
+    check(/^[2-9A-Z]{4}(-[2-9A-Z]{4}){5}$/.test(r.json.key), 'a key was minted', r.json.key);
 
     const v = await verifyKey(r.json.key, { secret: SECRET, now: Date.now() });
     check(v.ok, 'the minted key verifies', v.reason);
@@ -190,6 +215,15 @@ async function main() {
 
     const again = await admin(env, { action: 'paid', orderId: created.orderId, secret: ADMIN });
     check(again.json.key === r.json.key, 'approving twice returns the first key, not a second');
+
+    // a different order for the same plan must not produce the same key string
+    const other = await order(env, { plan: 'a7d' });
+    const otherPaid = await admin(env, { action: 'paid', orderId: other.json.orderId, secret: ADMIN });
+    check(otherPaid.json.key !== r.json.key,
+      'a second order for the same plan gets its own key', otherPaid.json.key);
+    const v1 = await verifyKey(r.json.key, { secret: SECRET, now: Date.now() });
+    const v2 = await verifyKey(otherPaid.json.key, { secret: SECRET, now: Date.now() });
+    check(v1.ok && v2.ok, 'and both verify');
   }
 
   // ---- 7. device binding ----------------------------------------------
@@ -298,7 +332,7 @@ async function main() {
   // ---- 13. ad-hoc mint -------------------------------------------------
   {
     const r = await admin(env, { action: 'mint', days: 3, tier: 2, secret: ADMIN });
-    check(r.status === 200 && /^[2-9A-Z]{4}(-[2-9A-Z]{4}){4}$/.test(r.json.key),
+    check(r.status === 200 && /^[2-9A-Z]{4}(-[2-9A-Z]{4}){5}$/.test(r.json.key),
       'admin can mint a key by hand', r.json.key);
     const v = await verifyKey(r.json.key, { secret: SECRET });
     check(v.ok && v.tier === 2 && v.left === 3, 'three days, tier 2', v.left + 'd');

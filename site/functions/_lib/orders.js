@@ -16,10 +16,53 @@
 
 import { safeEqual, randomHex, randomId } from './http.js';
 import { planById } from './plans.js';
-import { mint, fingerprint } from './key.js';
+import { mint, fingerprint, NONCE_MAX } from './key.js';
 
 const PREFIX = 'a:order:';
+const SEQ_KEY = 'a:seq';
+const KEYSEQ_KEY = 'a:keyseq';
 export const ORDER_TTL_MS = 30 * 60 * 1000; // a pending order lives 30 minutes
+
+/**
+ * The nonce that goes into a key, from a counter in KV.
+ *
+ * A counter, not a random number: it makes keys unique *by construction* rather
+ * than by luck, across every plan and tier. 24 bits is 16.7 million, so wrapping
+ * within one plan's expiry window is not a practical concern; if it ever did
+ * wrap, the keys would still be valid, just occasionally repeated.
+ */
+export async function nextKeyNonce(env) {
+  const kv = kvFor(env);
+  let n = Number(await kv.get(KEYSEQ_KEY));
+  if (!Number.isFinite(n) || n < 0) n = 0;
+  n = (Math.floor(n) + 1) % NONCE_MAX;
+  await kv.put(KEYSEQ_KEY, String(n));
+  return n;
+}
+
+/**
+ * A three-digit suffix, unique across the last 900 orders, added to the plan
+ * price so every pending order has its own amount.
+ *
+ * Why: two buyers of the same plan otherwise owe the same rupiah, and matching a
+ * payment to an order becomes guesswork from the timestamp in the merchant app.
+ * With a unique amount, the number in the transaction identifies the order.
+ * This is what the reference store does (a 40.000 plan showed up as 40.313,
+ * 40.312, ...) and it is the single biggest quality-of-life difference in daily
+ * operation.
+ *
+ * A KV read-modify-write, so it is not atomic: two orders created in the same
+ * millisecond can draw the same suffix. With a 900-wide window and a 30-minute
+ * order life, that means the admin occasionally has to match by time as well -
+ * which is the fallback anyway, so nothing breaks.
+ */
+async function nextSuffix(kv) {
+  let n = Number(await kv.get(SEQ_KEY));
+  if (!Number.isFinite(n) || n < 0) n = 0;
+  n = (Math.floor(n) + 1) % 900;
+  await kv.put(SEQ_KEY, String(n));
+  return 100 + n;
+}
 
 /** The binding name is not fixed: reuse whatever the project already has. */
 export function kvFor(env) {
@@ -54,6 +97,8 @@ function shape(rec, now) {
     plan: rec.plan,
     label: rec.label,
     days: rec.days,
+    price: rec.price == null ? rec.amount : rec.price,
+    unique: rec.price == null ? 0 : rec.amount - rec.price,
     amount: rec.amount,
     status,
     createdAt: rec.createdAt,
@@ -98,7 +143,8 @@ export async function createOrder(env, { planId, device = '', source = 'web' }) 
     label: plan.label,
     days: plan.days,
     tier: plan.tier,
-    amount: plan.price,
+    price: plan.price,
+    amount: plan.price + (await nextSuffix(kv)),
     status: 'pending',
     createdAt: now,
     expiresAt: now + ORDER_TTL_MS,
@@ -139,6 +185,7 @@ export async function markPaid(env, id, { device, note = '' } = {}) {
     days: rec.days,
     tier: rec.tier,
     deviceId: bound,
+    nonce: await nextKeyNonce(env),
     now: Date.now(),
   });
 

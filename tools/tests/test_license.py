@@ -96,10 +96,20 @@ def main() -> int:
     secret = embedded
 
     # --- a fresh key
-    key = kg.issue(secret, days=30, tier=1)
-    check("key is five groups of four", len(key) == 24 and key.count("-") == 4, key)
+    key = kg.issue(secret, days=30, tier=1, nonce=7)
+    check("key is six groups of four", len(key) == 29 and key.count("-") == 5, key)
     out_line = run("verify", key, "")
     check("a fresh key verifies in java", out_line.startswith("OK"), out_line)
+
+    # --- uniqueness: the nonce is what stops every buyer of a plan on one day
+    #     from receiving the identical key
+    a = kg.issue(secret, days=30, tier=1, nonce=1001)
+    b = kg.issue(secret, days=30, tier=1, nonce=1002)
+    check("two keys for the same plan on the same day differ", a != b, a + " / " + b)
+    check("and both are accepted", run("verify", a, "").startswith("OK")
+          and run("verify", b, "").startswith("OK"))
+    again = kg.issue(secret, days=30, tier=1, nonce=1001)
+    check("the same nonce reproduces the same key (so a reissue is possible)", again == a)
 
     # --- one flipped character
     body = key.replace("-", "")
@@ -110,29 +120,33 @@ def main() -> int:
     check("a flipped character is refused", out_line.startswith("BAD"), out_line)
     check("and it says why", "signature" in out_line, out_line)
 
-    # --- expiry
+    # --- expiry. Payloads are built here rather than through kg.issue so the
+    #     expiry can be set to a number java will disagree with, one byte at a
+    #     time. 10 bytes now: version|tier, exp LE, device LE, nonce LE.
     days_since = (kg.date.today() - kg.EPOCH).days
-    exp_recent = days_since + 5
-    payload = bytes([(1 << 4) | 1, exp_recent & 0xFF, (exp_recent >> 8) & 0xFF, 0, 0, 0, 0])
-    mac = hmac.new(secret.encode(), payload, hashlib.sha256).digest()[:5]
-    alive = fmt(kg.b32_encode(payload, 12) + kg.b32_encode(mac, 8))
-    out_line = run("verify", alive, "")
+
+    def raw(exp: int, version: int = kg.VERSION, tier: int = 1) -> str:
+        payload = bytes([((version & 0xF) << 4) | (tier & 0xF), exp & 0xFF, (exp >> 8) & 0xFF,
+                         0, 0, 0, 0, 0, 0, 0])
+        mac = hmac.new(secret.encode(), payload, hashlib.sha256).digest()[:5]
+        return fmt(kg.b32_encode(payload, kg.PAYLOAD_CHARS) + kg.b32_encode(mac, 8))
+
+    out_line = run("verify", raw(days_since + 5), "")
     check("a key 5 days from expiry verifies", out_line.startswith("OK"), out_line)
 
-    exp_past = 0
-    payload = bytes([(1 << 4) | 1, exp_past & 0xFF, (exp_past >> 8) & 0xFF, 0, 0, 0, 0])
-    mac = hmac.new(secret.encode(), payload, hashlib.sha256).digest()[:5]
-    dead = fmt(kg.b32_encode(payload, 12) + kg.b32_encode(mac, 8))
-    out_line = run("verify", dead, "")
+    out_line = run("verify", raw(0), "")
     check("expiry 0 means never expires", out_line.startswith("OK"), out_line)
 
-    exp_old = max(1, days_since - 3)
-    payload = bytes([(1 << 4) | 1, exp_old & 0xFF, (exp_old >> 8) & 0xFF, 0, 0, 0, 0])
-    mac = hmac.new(secret.encode(), payload, hashlib.sha256).digest()[:5]
-    expired = fmt(kg.b32_encode(payload, 12) + kg.b32_encode(mac, 8))
+    expired = raw(max(1, days_since - 3))
     out_line = run("verify", expired, "")
     check("a key that expired 3 days ago is refused", out_line.startswith("BAD"), out_line)
     check("and it names the expiry", "expired" in out_line, out_line)
+
+    # --- an old-version key must not be accepted by a new build
+    old = raw(days_since + 5, version=1)
+    out_line = run("verify", old, "")
+    check("a version-1 key is refused with the version named",
+          out_line.startswith("BAD") and "version" in out_line, out_line)
 
     # --- device binding
     device_a, device_b = "a1b2c3d4e5f6a7b8", "99887766ffeeddcc"

@@ -93,6 +93,8 @@ async function create(context) {
     plan: order.plan,
     label: order.label,
     days: order.days,
+    price: order.price,
+    unique: order.amount - order.price,
     amount: order.amount,
     status: order.status,
     createdAt: order.createdAt,

@@ -60,14 +60,22 @@ function manual(env, order) {
       note: cfg.reason + ' - hubungi admin untuk pembayaran manual.',
     };
   }
-  const dyn = withAmount(cfg.payload, order.amount);
+  // Two decimals by default: it is what the observed acquirer writes (a 40.000
+  // plan came back as 40.313.00), so the code we build is the same shape as the
+  // one the merchant issues. Set QRIS_DECIMALS=0 for a payload whose acquirer
+  // writes whole rupiah.
+  const decimals = String(env.QRIS_DECIMALS == null ? 2 : env.QRIS_DECIMALS) === '0' ? 0 : 2;
+  const dyn = withAmount(cfg.payload, order.amount, { decimals });
+  const rp = Number(order.amount).toLocaleString('id-ID');
+  const unique = order.price ? order.amount - order.price : 0;
   return {
     mode: 'manual',
     configured: true,
     qr: qrFor(dyn),
     payUrl: null,
-    note: 'Scan, bayar tepat Rp' + Number(order.amount).toLocaleString('id-ID')
-      + ', lalu tekan CEK STATUS. Key muncul setelah pembayaran dikonfirmasi.',
+    note: 'Scan dan bayar tepat Rp' + rp
+      + (unique ? ' - tiga digit terakhir itu kode unik pesananmu (' + unique + ')' : '')
+      + '. Tekan CEK STATUS setelah bayar; key muncul begitu pembayaran dikonfirmasi.',
   };
 }
 

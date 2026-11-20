@@ -242,6 +242,8 @@
   function showOrder(o) {
     $('order').classList.remove('hidden');
     $('oPlan').textContent = String(o.label || o.plan || '\u2014').toUpperCase();
+    const price = o.price == null ? o.amount : o.price;
+    $('oPrice').textContent = rp(price);
     $('oAmount').textContent = rp(o.amount || 0);
     $('oId').textContent = o.orderId || '\u2014';
     $('oKey').classList.add('hidden');
@@ -291,6 +293,7 @@
       $('order').classList.remove('hidden');
       $('oId').textContent = saved.orderId;
       if (o.label) $('oPlan').textContent = String(o.label).toUpperCase();
+      if (o.price != null) $('oPrice').textContent = rp(o.price);
       if (o.amount) $('oAmount').textContent = rp(o.amount);
       if (o.expiresAt) expiresAt = o.expiresAt;
       setStatus(o.status);

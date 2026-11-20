@@ -6,14 +6,22 @@
 // node -> java in site/tests/test_site_key.py. If this file drifts, the site
 // sells keys the app refuses, and that test is the only thing that notices.
 //
-//   XXXX-XXXX-XXXX-XXXX-XXXX          20 chars in five groups
+//   XXXX-XXXX-XXXX-XXXX-XXXX-XXXX     24 chars in six groups
 //
 //   alphabet   23456789ABCDEFGHJKLMNPQRSTUVWXYZ   (no 0/O/1/I)
-//   payload    12 chars = 7 bytes
+//   payload    16 chars = 10 bytes
 //              b0       version (high nibble) | tier (low nibble)
 //              b1..b2   expiry: days since 2026-01-01 UTC, LE. 0 = never
 //              b3..b6   device hash, LE. 0 = any device
+//              b7..b9   nonce, LE. makes every issued key a different string
 //   mac        8 chars = 5 bytes = HMAC-SHA256(secret, payload)[0:5]
+//
+// The nonce is not decoration. Without it the payload is a pure function of
+// (tier, expiry, device), so every key minted for a plan on one day is the same
+// string - two buyers would receive the same key, and one of them sharing it
+// would open the product for everyone buying that plan that day. `nonce` is
+// required when minting so that cannot happen by omission; orders.js passes a
+// counter, which makes the keys unique by construction rather than by luck.
 //
 // Two things that must match License.java exactly:
 //
@@ -26,9 +34,11 @@
 //     which is why `>>> 0` appears below and not `| 0`.
 
 const ALPHABET = '23456789ABCDEFGHJKLMNPQRSTUVWXYZ';
-const VERSION = 1;
-const PAYLOAD_CHARS = 12;
+const VERSION = 2;
+const PAYLOAD_CHARS = 16;
+const PAYLOAD_BYTES = 10;
 const MAC_CHARS = 8;
+export const NONCE_MAX = 1 << 24;
 export const EPOCH_MS = 1767225600000; // 2026-01-01T00:00:00Z
 const DAY_MS = 86400000;
 
@@ -94,7 +104,8 @@ async function hmac(secret, payload) {
   return new Uint8Array(await crypto.subtle.sign('HMAC', key, payload));
 }
 
-function payloadBytes(version, tier, exp, device) {
+function payloadBytes(version, tier, exp, device, nonce) {
+  const n = Number(nonce) % NONCE_MAX;
   return new Uint8Array([
     ((version & 0xf) << 4) | (tier & 0xf),
     exp & 0xff,
@@ -103,10 +114,13 @@ function payloadBytes(version, tier, exp, device) {
     (device >>> 8) & 0xff,
     (device >>> 16) & 0xff,
     (device >>> 24) & 0xff,
+    n & 0xff,
+    (n >>> 8) & 0xff,
+    (n >>> 16) & 0xff,
   ]);
 }
 
-/** 20 chars -> "XXXX-XXXX-XXXX-XXXX-XXXX" */
+/** 24 chars -> "XXXX-XXXX-XXXX-XXXX-XXXX-XXXX" */
 export function group(body) {
   return body.match(/.{1,4}/g).join('-');
 }
@@ -117,21 +131,28 @@ export function group(body) {
  * @param {object} o
  * @param {string} o.secret   must equal License.SECRET
  * @param {number} o.days     days from now; 0 or less means never expires
+ * @param {number} o.nonce    makes this key a unique string. Required: without
+ *                            it every key for one plan on one day is identical.
  * @param {number} [o.tier]   1 basic, 2 pro
  * @param {string} [o.deviceId] Android ID to bind to; empty = any device
  * @param {number} [o.now]    epoch ms, for tests
  */
-export async function mint({ secret, days = 30, tier = 1, deviceId = '', now = Date.now() }) {
+export async function mint({ secret, days = 30, tier = 1, deviceId = '', nonce, now = Date.now() }) {
   if (!secret) throw new Error('key: no secret');
   const n = Math.trunc(Number(days));
   if (!Number.isFinite(n)) throw new Error('key: days is not a number');
   if (n < 0) throw new Error('key: days cannot be negative');
   const t = Math.trunc(Number(tier));
   if (!(t >= 0 && t <= 15)) throw new Error('key: tier must be 0..15');
+  if (nonce === undefined || nonce === null || !Number.isFinite(Number(nonce))) {
+    // Refusing is the point: a default of 0 would silently reintroduce
+    // duplicate keys for every buyer of a plan on the same day.
+    throw new Error('key: nonce is required (it is what makes the key unique)');
+  }
 
   const exp = n <= 0 ? 0 : (dayNumber(now) + n) & 0xffff;
   const device = await deviceHash(secret, String(deviceId || ''));
-  const payload = payloadBytes(VERSION, t, exp, device);
+  const payload = payloadBytes(VERSION, t, exp, device, nonce);
   const mac = (await hmac(secret, payload)).slice(0, 5);
   return group(b32encode(payload, PAYLOAD_CHARS) + b32encode(mac, MAC_CHARS));
 }
@@ -140,7 +161,7 @@ export async function mint({ secret, days = 30, tier = 1, deviceId = '', now = D
 export async function verify(key, { secret, deviceId = '', now = Date.now() }) {
   const body = String(key || '').replace(/[- ]/g, '').toUpperCase();
   if (body.length !== PAYLOAD_CHARS + MAC_CHARS) {
-    return { ok: false, reason: 'a key is 20 characters, this one is ' + body.length };
+    return { ok: false, reason: 'a key is ' + (PAYLOAD_CHARS + MAC_CHARS) + ' characters, this one is ' + body.length };
   }
   let payload;
   let mac;

@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
 """run_all.py - the whole offline test suite, one command.
 
-Covers everything that can be verified without macOS, a device or a real IPA:
+Everything that can be verified without a device, a real IPA or a Cloudflare
+account: the Android app's Java, the daemon, the payload forge, the laptop-side
+config channel, the key format against the real License.java, and the storefront
+including its API against a fake KV.
 
-  1. tools/selftest.py            proxy, panel, control state, menu api, rules, protobuf
-  2. tests/test_ipa_probe.py      IPA classification
-  3. tests/test_package_ipa.py    dylib -> IPA packaging, load-command injection
-  4. tests/test_metadata.py       offline IL2CPP name harvesting
+Each suite is a script that prints [ok]/[FAIL] lines and exits non-zero on
+failure, so this only has to run them and add up the counts.
 
   python tools/tests/run_all.py
   python tools/tests/run_all.py --fail-fast
@@ -25,7 +26,6 @@ HERE = pathlib.Path(__file__).resolve().parent
 ROOT = HERE.parent.parent
 
 SUITES = [
-    ("selftest      ", ROOT / "tools" / "selftest.py"),
     ("metadata_hunt ", HERE / "test_metadata.py"),
     ("math          ", HERE / "test_math.py"),
     # compiles and drives android/daemon/memd.c on a Linux host; skips on Windows

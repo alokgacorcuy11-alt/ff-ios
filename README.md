@@ -145,15 +145,20 @@ Behaviour still decides most bans — smooth ≥ 6, chest, FOV ≤ 90, ESP befor
 and nothing in ranked until you know the build is stable. Full table and the
 Magisk checklist: `android/README.md` §8.
 
-## The old mitmproxy panel (optional)
+## Where the iOS proxy went
 
-`ffproxy/`, `menu/`, `rules/`, `run.py` are the mitmproxy panel from the iOS
-build: it serves the feature JSON and the HTML panel over the game's own
-WebView. On Android the overlay replaces it, so it is optional — kept because
-it is tested, and because a laptop-side config that the app polls is sometimes
-easier than editing a file on the device.
+`ffproxy/`, `menu/`, `rules/`, `run.py`, `serve.bat`, `config.yaml`,
+`requirements.txt` and the tools that only existed to serve them
+(`selftest.py`, `menu_server.py`, `pbdecode.py`, `hosts.py`, `dns_hijack.py`)
+were removed once the store went Android-only: nothing on the Android side reads
+them, and a laptop-side proxy that nothing calls is a thing to maintain for no
+reason.
+
+They are not lost. They are intact at the tag **`ios-legacy`**:
 
 ```bash
+git checkout ios-legacy -- ffproxy menu rules run.py config.yaml requirements.txt
+git checkout ios-legacy -- tools/selftest.py tools/menu_server.py tools/pbdecode.py tools/hosts.py tools/dns_hijack.py
 pip install -r requirements.txt
 python run.py            # panel on http://localhost:8081
 ```
@@ -162,4 +167,4 @@ python run.py            # panel on http://localhost:8081
 
 The iOS build (Theos dylib, IPA packaging, entitlement handling, and the ban
 post-mortem that concluded the ban was a launch-time integrity verdict) is
-tagged **`ios-final`**. Nothing was lost — it is one `git checkout` away.
+tagged **`ios-final`**. Nothing was lost - it is one `git checkout` away.

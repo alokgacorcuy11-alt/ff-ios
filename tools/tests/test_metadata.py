@@ -11,8 +11,8 @@ import tempfile
 import zipfile
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent.parent
-TMP = pathlib.Path(os.environ.get("FFPROXY_TEST_TMP")
-                   or (pathlib.Path(tempfile.gettempdir()) / "ffproxy-tests")) / "metadata"
+TMP = pathlib.Path(os.environ.get("DEMIOS_TEST_TMP")
+                   or (pathlib.Path(tempfile.gettempdir()) / "demios-tests")) / "metadata"
 TMP.mkdir(parents=True, exist_ok=True)
 FAIL = 0
 

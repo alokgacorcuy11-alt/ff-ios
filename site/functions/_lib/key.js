@@ -20,8 +20,8 @@
 // (tier, expiry, device), so every key minted for a plan on one day is the same
 // string - two buyers would receive the same key, and one of them sharing it
 // would open the product for everyone buying that plan that day. `nonce` is
-// required when minting so that cannot happen by omission; orders.js passes a
-// counter, which makes the keys unique by construction rather than by luck.
+// required when minting so that cannot happen by omission; orders.js draws a
+// fresh random one (see freshNonce below).
 //
 // Two things that must match License.java exactly:
 //
@@ -84,6 +84,29 @@ export function b32decode(text, chars) {
 /** The day number License.java computes: UTC, from 2026-01-01. */
 export function dayNumber(nowMs) {
   return Math.floor((nowMs - EPOCH_MS) / DAY_MS);
+}
+
+/**
+ * A fresh 24-bit nonce for a key.
+ *
+ * From the CSPRNG rather than a KV counter, deliberately. A counter needs a
+ * read-modify-write, which KV does not make atomic, and KV reads are only
+ * eventually consistent across locations - so the guarantee would rest on a
+ * property KV does not promise. Randomness rests on nothing.
+ *
+ * (An earlier version of this used a counter, and it did advance correctly in
+ * the live deployment. This is not a report of an observed failure; it is
+ * removing a dependency that has no business being load-bearing.)
+ *
+ * The cost is that uniqueness is probabilistic. With 16.7 million values,
+ * twenty keys in a day for one plan collide with probability 0.001%; a thousand
+ * in one day for one plan, 3%. Both are valid keys either way - a collision
+ * means two buyers share a key, not that a key is rejected.
+ */
+export function freshNonce() {
+  const b = new Uint8Array(4);
+  crypto.getRandomValues(b);
+  return (((b[0] << 16) | (b[1] << 8) | b[2]) >>> 0) % NONCE_MAX;
 }
 
 /** sha256(secret + "|" + deviceId)[0:4] read as a big-endian u32. */

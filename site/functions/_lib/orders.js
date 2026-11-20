@@ -16,29 +16,11 @@
 
 import { safeEqual, randomHex, randomId } from './http.js';
 import { planById } from './plans.js';
-import { mint, fingerprint, NONCE_MAX } from './key.js';
+import { mint, fingerprint, freshNonce } from './key.js';
 
 const PREFIX = 'a:order:';
 const SEQ_KEY = 'a:seq';
-const KEYSEQ_KEY = 'a:keyseq';
 export const ORDER_TTL_MS = 30 * 60 * 1000; // a pending order lives 30 minutes
-
-/**
- * The nonce that goes into a key, from a counter in KV.
- *
- * A counter, not a random number: it makes keys unique *by construction* rather
- * than by luck, across every plan and tier. 24 bits is 16.7 million, so wrapping
- * within one plan's expiry window is not a practical concern; if it ever did
- * wrap, the keys would still be valid, just occasionally repeated.
- */
-export async function nextKeyNonce(env) {
-  const kv = kvFor(env);
-  let n = Number(await kv.get(KEYSEQ_KEY));
-  if (!Number.isFinite(n) || n < 0) n = 0;
-  n = (Math.floor(n) + 1) % NONCE_MAX;
-  await kv.put(KEYSEQ_KEY, String(n));
-  return n;
-}
 
 /**
  * A three-digit suffix, unique across the last 900 orders, added to the plan
@@ -185,7 +167,7 @@ export async function markPaid(env, id, { device, note = '' } = {}) {
     days: rec.days,
     tier: rec.tier,
     deviceId: bound,
-    nonce: await nextKeyNonce(env),
+    nonce: freshNonce(),
     now: Date.now(),
   });
 

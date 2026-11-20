@@ -723,9 +723,10 @@ mac        8 chars = 5 bytes = HMAC-SHA256(secret, payload)[0:5]
 The nonce is load-bearing. Without it the payload is a function of
 (tier, expiry, device) alone, so every key issued for one plan on one day is the
 same string - two buyers would get the same key and one leaked key would open
-the product for everyone buying that plan that day. The site passes a counter
-(`a:keyseq` in KV); the CLI defaults to a random value and `--nonce` overrides
-it. `mint()` in `key.js` refuses to run without one, so this cannot come back by
+the product for everyone buying that plan that day. The site draws a random
+24-bit nonce for every key (a CSPRNG, not a KV counter - uniqueness should not
+depend on KV's read consistency), and the CLI does the same unless `--nonce`
+says otherwise. `mint()` in `key.js` refuses to run without one, so this cannot come back by
 accident.
 
 ```bash

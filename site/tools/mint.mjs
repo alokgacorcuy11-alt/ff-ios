@@ -9,7 +9,7 @@
 // The nonce is what makes each key a different string. Without --nonce one is
 // generated from the CSPRNG, because two keys minted for the same plan on the
 // same day are otherwise byte-identical.
-import { mint, verify, deviceHash, dayNumber, fingerprint, NONCE_MAX } from '../functions/_lib/key.js';
+import { mint, verify, deviceHash, dayNumber, fingerprint, freshNonce } from '../functions/_lib/key.js';
 
 function args(argv) {
   const out = { _: [] };
@@ -26,12 +26,6 @@ function args(argv) {
   return out;
 }
 
-function randomNonce() {
-  const b = new Uint8Array(4);
-  crypto.getRandomValues(b);
-  return (((b[0] << 16) | (b[1] << 8) | b[2]) >>> 0) % NONCE_MAX;
-}
-
 const a = args(process.argv.slice(2));
 const cmd = a._[0];
 const secret = a.secret;
@@ -44,7 +38,7 @@ if (!secret) {
 
 try {
   if (cmd === 'mint') {
-    const nonce = a.nonce === undefined ? randomNonce() : Number(a.nonce);
+    const nonce = a.nonce === undefined ? freshNonce() : Number(a.nonce);
     const key = await mint({
       secret,
       days: a.days === undefined ? 30 : Number(a.days),

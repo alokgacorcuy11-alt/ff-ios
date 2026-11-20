@@ -226,6 +226,48 @@ async function main() {
     check(v1.ok && v2.ok, 'and both verify');
   }
 
+  // ---- 6b. uniqueness must not depend on shared mutable state ------------
+  {
+    // Twenty quick approvals, all the same plan. A KV counter would be read
+    // repeatedly here and could hand out the same value; randomness cannot.
+    const e = makeEnv();
+    const keys = [];
+    for (let i = 0; i < 20; i++) {
+      const o = await order(e, { plan: 'a1d' });
+      const p = await admin(e, { action: 'paid', orderId: o.json.orderId, secret: ADMIN });
+      keys.push(p.json.key);
+    }
+    const uniq = new Set(keys);
+    check(uniq.size === keys.length,
+      '20 approvals in a row mint 20 distinct keys', uniq.size + '/' + keys.length);
+    check(keys.every((k) => k.replace(/-/g, '').length === 24),
+      'every key is 24 characters');
+    const verdicts = await Promise.all(keys.map((k) => verifyKey(k, { secret: SECRET })));
+    check(verdicts.every((v) => v.ok), 'and every one of them verifies');
+
+    // The design property behind that: approving writes only the order record,
+    // and minting reads no shared state. Creating writes two - the order and the
+    // amount sequence - and that sequence is the one place a stale read is
+    // possible, which is why it only costs two orders sharing an amount rather
+    // than anything a buyer would notice.
+    const before = e.DEMIOS_KV.puts;
+    const o = await order(e, { plan: 'a7d' });
+    const mid = e.DEMIOS_KV.puts;
+    await admin(e, { action: 'paid', orderId: o.json.orderId, secret: ADMIN });
+    const after = e.DEMIOS_KV.puts;
+    check(mid - before === 2, 'creating an order writes the order and the amount sequence',
+      String(mid - before));
+    check(after - mid === 1, 'and approving writes exactly one more - no shared counter',
+      String(after - mid));
+    const readings = [];
+    for (let i = 0; i < 3; i++) {
+      const x = await order(e, { plan: 'a7d' });
+      readings.push(x.json.unique);
+    }
+    check(new Set(readings).size === 3, 'the amount sequence advances on every create',
+      readings.join(', '));
+  }
+
   // ---- 7. device binding ----------------------------------------------
   {
     const androidId = 'a1b2c3d4e5f6a7b8';

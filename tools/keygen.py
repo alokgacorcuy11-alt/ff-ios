@@ -21,7 +21,8 @@ The nonce is why two buyers of the same plan on the same day do not receive the
 same key. Without it the payload is a pure function of (tier, expiry, device), so
 every key issued for a plan on a given day is byte-identical - and one buyer
 sharing their key would open the product for every other buyer of that plan that
-day. The site passes a counter; the CLI defaults to 0 and --nonce overrides it.
+day. The site draws a random 24-bit nonce for every key; the CLI defaults to 0
+and --nonce overrides it.
 
 The device hash is
 
@@ -156,7 +157,7 @@ def main(argv: list[str]) -> int:
     ap.add_argument("--days", type=int, default=30, help="0 means never expires")
     ap.add_argument("--tier", type=int, default=1)
     ap.add_argument("--device", default="", help="android id, empty for a key that works anywhere")
-    ap.add_argument("--nonce", type=int, default=0, help="makes the key unique; the site passes a counter")
+    ap.add_argument("--nonce", type=int, default=0, help="makes the key unique; 0 gives the canonical key for the day")
     ap.add_argument("--count", type=int, default=1)
     ap.add_argument("--verify", help="check a key instead of issuing one")
     args = ap.parse_args(argv)

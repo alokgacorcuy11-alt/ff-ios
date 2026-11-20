@@ -16,9 +16,8 @@
 import { json, fail, body, allow, safeEqual } from '../../_lib/http.js';
 import {
   listOrders, markPaid, cancelOrder, kvFor, secretFor, isOrderId, cleanDevice,
-  nextKeyNonce,
 } from '../../_lib/orders.js';
-import { mint, verify } from '../../_lib/key.js';
+import { mint, verify, freshNonce } from '../../_lib/key.js';
 import { payMode, qrisConfig } from '../../_lib/pay.js';
 import { PLANS } from '../../_lib/plans.js';
 
@@ -113,7 +112,7 @@ async function handle(context) {
         days,
         tier,
         deviceId: device,
-        nonce: await nextKeyNonce(env),
+        nonce: freshNonce(),
         now: Date.now(),
       });
       return json({ ok: true, key, days, tier, device, note: data.note || '' });

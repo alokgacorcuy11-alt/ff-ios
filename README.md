@@ -16,6 +16,7 @@ tools/lan_config.py          laptop side: push settings over the hotspot
 tools/apk_triage.py          inspect any APK with no SDK: manifest, cert, libs
 tools/footprint.py           what a blacklist could key on, before shipping
 tools/payload_forge.py       one container per install: no shared bytes at all
+tools/keygen.py              issue and check activation keys
 ```
 
 ## Why external and not injected

@@ -11,6 +11,7 @@ import android.text.method.ScrollingMovementMethod;
 import android.view.Gravity;
 import android.view.View;
 import android.widget.Button;
+import android.widget.EditText;
 import android.widget.LinearLayout;
 import android.widget.TextView;
 
@@ -48,6 +49,8 @@ public class MainActivity extends Activity {
 
     private TextView out;
     private Button connect, stop, feed, panel, vision;
+    private EditText keyIn;
+    private Button activate;
     private MemClient client;
     private volatile int gamePid;
     private volatile int daemonPid;
@@ -133,6 +136,30 @@ public class MainActivity extends Activity {
             startActivityForResult(mpm.createScreenCaptureIntent(), REQ_CAPTURE);
         });
 
+        keyIn = new EditText(this);
+        keyIn.setHint("XXXX-XXXX-XXXX-XXXX-XXXX");
+        keyIn.setTypeface(Typeface.MONOSPACE);
+        keyIn.setTextSize(12);
+        keyIn.setTextColor(Color.parseColor("#c9d1d9"));
+
+        activate = new Button(this);
+        activate.setText("KEY");
+        activate.setOnClickListener(v -> activateKey());
+
+        LinearLayout keyRow = new LinearLayout(this);
+        keyRow.setOrientation(LinearLayout.HORIZONTAL);
+        keyRow.addView(keyIn, new LinearLayout.LayoutParams(0,
+                LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
+        keyRow.addView(activate, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT));
+
+        LinearLayout.LayoutParams kr = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT);
+        kr.topMargin = pad;
+        root.addView(keyRow, kr);
+
         row.addView(connect, new LinearLayout.LayoutParams(0,
                 LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
         row.addView(stop, new LinearLayout.LayoutParams(0,
@@ -175,6 +202,18 @@ public class MainActivity extends Activity {
             return c.read(pid, addr, len);
         });
         lan.start();
+    }
+
+    private void activateKey() {
+        String device = android.provider.Settings.Secure.getString(
+                getContentResolver(), android.provider.Settings.Secure.ANDROID_ID);
+        String key = keyIn.getText().toString().trim();
+        License.Status s = License.check(key, device == null ? "" : device);
+        say(s.toString());
+        if (s.ok) {
+            say("device id: " + (device == null ? "-" : device));
+        }
+        Panel.refresh();
     }
 
     private int dp(int v) {

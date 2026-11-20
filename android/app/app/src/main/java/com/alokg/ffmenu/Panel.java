@@ -76,6 +76,12 @@ final class Panel {
         live.attach();
     }
 
+    static void refresh() {
+        if (live != null) {
+            live.rebuild();
+        }
+    }
+
     static void hide() {
         if (live != null) {
             live.detach();
@@ -143,6 +149,31 @@ final class Panel {
         bar.setBackgroundColor(BG);
         bar.setOnTouchListener(drag());
         root.addView(bar);
+
+        if (!License.unlocked()) {
+            local("LOCKED - masukkan key di app", false, () -> {
+            });
+            status = new TextView(ctx);
+            status.setTextColor(OFF);
+            status.setTypeface(Typeface.MONOSPACE);
+            status.setTextSize(10);
+            status.setPadding(10, 8, 10, 8);
+            status.setBackgroundColor(BG);
+            status.setText(License.current() == null
+                    ? "key: none" : License.current().toString());
+            root.addView(status);
+
+            TextView closeLocked = new TextView(ctx);
+            closeLocked.setText("  HIDE PANEL  ");
+            closeLocked.setTextColor(OFF);
+            closeLocked.setTypeface(Typeface.MONOSPACE);
+            closeLocked.setTextSize(11);
+            closeLocked.setPadding(10, 12, 10, 16);
+            closeLocked.setBackgroundColor(BG);
+            closeLocked.setOnClickListener(v -> toggle(ctx, cfg));
+            root.addView(closeLocked);
+            return;
+        }
 
         section("ESP");
         bool("BOX", cfg.espBox, () -> cfg.espBox = !cfg.espBox);

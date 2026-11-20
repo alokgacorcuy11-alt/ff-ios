@@ -47,6 +47,8 @@ SUITES = [
     ("feed          ", HERE / "test_feed.py"),
     # the frame detector, against frames whose answer is known
     ("vision        ", HERE / "test_vision.py"),
+    # keys issued in python, checked by the real java verifier
+    ("license       ", HERE / "test_license.py"),
 ]
 
 # The shell suites are not Python, so they need their own runner. They are

@@ -28,6 +28,7 @@ SRC = ROOT / "android" / "app" / "app" / "src" / "main" / "java"
 
 SOURCES = [
     "com/alokg/ffmenu/Config.java",
+    "com/alokg/ffmenu/License.java",
     "com/alokg/ffmenu/LanConfig.java",
     "com/alokg/ffmenu/MainActivity.java",
     "com/alokg/ffmenu/FeedService.java",
@@ -55,6 +56,7 @@ public class Context {
     public static final String WINDOW_SERVICE = "window";
     public static final String MEDIA_PROJECTION_SERVICE = "media_projection";
     public Object getSystemService(String name) { return null; }
+    public android.content.ContentResolver getContentResolver() { return null; }
     public android.content.res.AssetManager getAssets() { return null; }
     public android.content.res.Resources getResources() { return null; }
 }
@@ -67,6 +69,31 @@ public final class Settings {
     public static final String ACTION_ACCESSIBILITY_SETTINGS =
             "android.settings.ACCESSIBILITY_SETTINGS";
     public static boolean canDrawOverlays(android.content.Context c) { return true; }
+    public static final class Secure {
+        public static final String ANDROID_ID = "android_id";
+        public static String getString(android.content.ContentResolver cr, String name) {
+            return null;
+        }
+    }
+}
+""",
+    "android/content/ContentResolver.java": """
+package android.content;
+public class ContentResolver {}
+""",
+    "android/text/Editable.java": """
+package android.text;
+public class Editable {
+    public Editable replace(int a, int b, CharSequence s) { return this; }
+    public String toString() { return ""; }
+}
+""",
+    "android/widget/EditText.java": """
+package android.widget;
+public class EditText extends TextView {
+    public EditText(android.content.Context c) { super(c); }
+    public android.text.Editable getText() { return null; }
+    public void setHint(CharSequence s) {}
 }
 """,
     "android/graphics/PixelFormat.java": """

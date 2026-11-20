@@ -133,7 +133,7 @@ final class Vision {
 
     /** Called from the UI thread, once per captured frame. */
     private void onFrame(int[] argb, int w, int h) {
-        if (live != this) {
+        if (live != this || !License.unlocked()) {
             return;
         }
         params.bandTop = 0;

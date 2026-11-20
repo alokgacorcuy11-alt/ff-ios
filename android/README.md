@@ -701,6 +701,46 @@ Two hazards worth knowing before this is used in anger:
   would not be for two hundred. If it ever grows, keep the views and update the
   labels instead.
 
+## 8f. Keys - install, type, unlocked
+
+`tools/keygen.py` issues, `License.java` verifies, on the device, with no
+server round trip. Twenty characters in five groups:
+
+```
+XXXX-XXXX-XXXX-XXXX-XXXX
+```
+
+```
+alphabet   23456789ABCDEFGHJKLMNPQRSTUVWXYZ   (no 0/O/1/I)
+payload    12 chars = 7 bytes
+           b0       version | tier
+           b1..b2   expiry in days since 2026-01-01, LE. 0 = never
+           b3..b6   device hash, LE. 0 = any device
+mac        8 chars = 5 bytes = HMAC-SHA256(secret, payload)[0:5]
+```
+
+```bash
+python tools/keygen.py --secret "<secret>" --days 30            # any device
+python tools/keygen.py --secret "<secret>" --days 30 --device <android_id>
+python tools/keygen.py --secret "<secret>" --verify <key>
+```
+
+The device hash is `sha256(secret + "|" + ANDROID_ID)[0:4]` as a big-endian
+int, computed identically in Python and Java. `tools/tests/test_license.py`
+issues a key in Python and feeds it to the real `License` class: fresh key,
+flipped character, expired key, bound key on the wrong phone, unbound key
+anywhere, bad alphabet, lowercase. If the two implementations ever drift, every
+key already sold stops working - so that test is the one that matters.
+
+**What this is and is not.** The secret ships in the APK, so anyone who
+decompiles it can mint keys; offline licensing cannot be stronger than that.
+What it buys: a leaked key can be bound to one phone, an expiry can be set, and
+nothing has to ask the network for permission in the middle of a match.
+
+The panel refuses to open past the lock row until a key verifies, and the vision
+loop returns immediately, so an unlicensed build draws nothing even if someone
+starts the capture by hand.
+
 ## 9. Files
 
 ```
@@ -736,6 +776,7 @@ tools/
 ├─ verify_build.py    the publish gate: does the APK carry the identity asked for
 ├─ footprint.py       what a game could blacklist a build on, before shipping
 ├─ payload_forge.py   one container per install: unique key, name, padding, port
+├─ keygen.py          issue and check activation keys
 └─ tests/
    ├─ test_memd.py          drives the real daemon on Linux
    ├─ test_lan_config.py    pins the packet format, runs sender -> listener
@@ -744,7 +785,9 @@ tools/
    ├─ test_verify_build.py  the gate against APKs broken one field at a time
    ├─ test_footprint.py     the blacklist-surface scanner, dirty vs clean APK
    ├─ test_payload_forge.py the container: uniqueness, tamper, manifest
-   └─ test_feed.py          python forge <-> java transport over a real socket
+   ├─ test_feed.py          python forge <-> java transport over a real socket
+   ├─ test_vision.py        the detector against frames whose answer is known
+   └─ test_license.py       keys issued in python, checked by the java verifier
 ```
 
 The old iOS tree is not deleted from history: tag `ios-final` on `main` is the

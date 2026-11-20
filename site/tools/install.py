@@ -165,6 +165,17 @@ def main() -> int:
     say()
     say(patch_nav(static / "store.html", a.dry_run))
 
+    # The overlay reuses the site's own stylesheet instead of copying 13 KB of
+    # CSS, so if the project has no store.css next to its pages the Android
+    # pages will render as unstyled HTML - which looks like a broken deployment
+    # rather than a missing file.
+    if not (static / "store.css").exists():
+        say()
+        say("WARNING: no store.css in " + str(static))
+        say("         the Android pages link to /store.css for their layout.")
+        say("         If your project keeps it somewhere else, change the <link> in")
+        say("         android.html and android-admin.html to match.")
+
     secret = read_secret()
     say()
     say("--- next, once ------------------------------------------------")

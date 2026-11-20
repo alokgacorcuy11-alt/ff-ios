@@ -67,6 +67,8 @@ SUITES = [
     ("site pay      ", ROOT / "site" / "tests" / "test_site_pay.py"),
     # the installer, run against a fake project tree
     ("site install  ", ROOT / "site" / "tests" / "test_site_install.py"),
+    # the deploy smoke test, against two loopback deployments
+    ("site smoke    ", ROOT / "site" / "tests" / "test_site_smoke.py"),
 ]
 
 # The shell suites are not Python, so they need their own runner. They are

@@ -32,6 +32,7 @@ site/
     android-admin.html  /android-admin - the back office
   tools/
     install.py          copy the overlay into a real project, add the nav link
+    smoke.py            check a deployment from the outside, asset by asset
     mint.mjs            mint/verify a key from the command line
     pay_probe.mjs       ask a live gateway to make one QR and report the shape
     qris_from_image.py  decode a QRIS screenshot into the payload string
@@ -89,6 +90,22 @@ wrangler pages deploy web/public --project-name demios
 `install.py` prints the exact `LICENSE_SECRET` value, read out of
 `License.java`, so the two sides cannot be set to different strings by hand.
 
+### Check the deployment, from the outside
+
+```bash
+python site/tools/smoke.py --base https://demios.pages.dev --admin-secret <S>
+```
+
+It fetches the pages, follows every local asset they reference, and demands each
+one load - then it confirms `/store.css` actually defines the classes the page
+needs, drives create -> poll -> wrong-token, pings the admin endpoint, and
+cancels the order it created so nothing is left behind. Exit 1 names the exact
+path that failed.
+
+This exists because of a real failure: the preview branch carried the Android
+pages but not the project's `store.css`, so `/android` returned **200** and
+rendered as unstyled HTML. A status check passes that; this does not.
+
 ### C. Preview first, if you want
 
 A deployment to any branch other than `main` is a preview: production is
@@ -102,6 +119,14 @@ wrangler pages deploy site/public --project-name demios --branch android
 Useful for checking the Functions in the real runtime before touching the live
 store. It will not have your homepage or `/api/buy` - it is a preview of the
 overlay only.
+
+Because of that, a preview deployment also has no `store.css`, and `/android`
+will render as plain unstyled HTML there. That is the deployment missing a file,
+not the page being broken: copy the project's `store.css` and `favicon.svg` next
+to the overlay in the deploy directory and the preview looks like the real
+thing. Do not copy them into `site/public` in the repo - `install.py` copies that
+directory into the live project, and a stale `store.css` would overwrite the one
+that is actually serving your site.
 
 **Preview does not inherit production secrets.** Cloudflare keeps two separate
 environments, and a variable set for production is not visible to a preview
@@ -375,6 +400,7 @@ python site/tests/test_site_draw.py    # public/qr.js drawn into a fake canvas
 python site/tests/test_site_markup.py  # page ids and assets vs the scripts
 python site/tests/test_site_pay.py     # the gateway adapter, 6 response shapes
 python site/tests/test_site_install.py # the installer, against a fake project
+python site/tests/test_site_smoke.py   # the deploy smoke test, two loopback deployments
 ```
 
 What each one actually proves:
@@ -405,6 +431,11 @@ What each one actually proves:
   one: dry run writes nothing, the real run copies everything and adds exactly
   one nav link inside `<nav>` before `ACTIVATE`, a second run is byte-identical,
   and a directory that is not a site is refused.
+- **smoke** - two loopback deployments with Pages' clean URLs. An overlay-only
+  one must make `smoke.py` exit 1 naming `/store.css`; a complete one must exit
+  0; a `store.css` that returns 200 but defines no classes must still fail; a
+  missing favicon must be reported; an unreachable base must exit 1 rather than
+  crash. A monitoring tool that has never been seen to fail is not a tool.
 
 One check needs a built APK, so it is a CI step rather than part of the suite:
 
@@ -471,6 +502,7 @@ The test orders were then deleted from KV, so the queue starts empty.
 | keys rejected by the APK | `LICENSE_SECRET` != `License.SECRET` | make them identical, rebuild the APK |
 | `gateway returned no qr_string and no url` | the account's response shape is not in the list | `node site/tools/pay_probe.mjs ...`, then set `KLIKQRIS_QR_FIELDS` |
 | QR shows but no wallet reads it | the buyer's app is old, or the screen is too dim | the code is dark-on-white at ~1024 px; turn the brightness up |
+| the page renders as plain HTML, links in blue, no layout | `/store.css` is not being served where the page expects it | run `smoke.py`; the deploy directory must contain `store.css` next to `android.html` |
 | order stuck at `pending` after payment | manual mode, nobody approved it | `/android-admin` -> MENUNGGU -> approve |
 | `webhooks are disabled` | `WEBHOOK_SECRET` unset | that is the default and it is safe; set it only if a gateway calls you |
 | the iOS store disappeared after deploying | `site/public` was deployed as the whole site | redeploy from the project root that has your `store.html`, then use `install.py` |

@@ -116,40 +116,78 @@ export function extract(env, data) {
 }
 
 /**
+ * How to talk to the gateway: endpoint, credential, header name, request body.
+ *
+ * Everything is overridable because the account is the account, not the code:
+ *
+ *   KLIKQRIS_CREATE_URL            the endpoint
+ *   KLIKQRIS_KEY                   the credential. Falls back to
+ *                                  KLIKQRIS_API_KEY, which is the name the
+ *                                  existing production project already uses -
+ *                                  so the credential you have works here too.
+ *   KLIKQRIS_AUTH_HEADER           default "x-api-key"
+ *   KLIKQRIS_AUTH_PREFIX           default "" - set "Bearer " if the account
+ *                                  wants Authorization: Bearer <key>
+ *   KLIKQRIS_BODY                  a JSON template with {{amount}}, {{ref_id}},
+ *                                  {{merchant_id}} substituted. Default:
+ *                                  {"amount":N,"ref_id":"AND-XXXXXX"} plus
+ *                                  merchant_id when KLIKQRIS_MERCHANT_ID is set.
+ */
+export function gatewayConfig(env) {
+  const key = env.KLIKQRIS_KEY || env.KLIKQRIS_API_KEY || '';
+  const header = (env.KLIKQRIS_AUTH_HEADER || 'x-api-key').trim();
+  const prefix = env.KLIKQRIS_AUTH_PREFIX == null ? '' : String(env.KLIKQRIS_AUTH_PREFIX);
+  return {
+    url: env.KLIKQRIS_CREATE_URL || '',
+    key,
+    header,
+    prefix,
+    ready: Boolean(env.KLIKQRIS_CREATE_URL && key),
+  };
+}
+
+export function requestBody(env, order) {
+  const merchant = env.KLIKQRIS_MERCHANT_ID || '';
+  const tpl = env.KLIKQRIS_BODY;
+  if (tpl && String(tpl).trim()) {
+    const filled = String(tpl)
+      .replace(/\{\{amount\}\}/g, String(order.amount))
+      .replace(/\{\{ref_id\}\}/g, order.id)
+      .replace(/\{\{merchant_id\}\}/g, merchant);
+    return JSON.parse(filled);
+  }
+  const body = { amount: order.amount, ref_id: order.id };
+  if (merchant) body.merchant_id = merchant;
+  return body;
+}
+
+/**
  * klikqris adapter.
  *
- * Expected contract - edit this function if the account differs:
- *
- *   POST $KLIKQRIS_CREATE_URL
- *   x-api-key: $KLIKQRIS_KEY
- *   { "amount": 140000, "ref_id": "AND-7K2M9Q" }
- *
- *   -> { "qr_string": "000201..." }      or  { "data": { "qr_string": "..." } }
- *   -> { "qr_url": "https://..." }       or  { "checkout_url": "..." }
- *
- * Anything else is reported with the status code and the first 200 bytes of the
- * body, because guessing at a gateway's field names produces orders that look
- * fine and never settle.
+ * Sends one create call and reads the QR string or payment URL out of the
+ * response. Nothing about the account's field names is assumed: unknown shapes
+ * are refused with the status and the first 200 bytes of the body, because
+ * guessing at a gateway's field names produces orders that look fine and never
+ * settle. Confirm the shape first with tools/pay_probe.mjs.
  */
 async function klikqris(env, order) {
-  const url = env.KLIKQRIS_CREATE_URL;
-  const key = env.KLIKQRIS_KEY;
-  if (!url || !key) {
+  const cfg = gatewayConfig(env);
+  if (!cfg.ready) {
     return {
       mode: 'klikqris',
       configured: false,
       qr: null,
       payUrl: null,
-      note: 'PAY_MODE=klikqris but KLIKQRIS_CREATE_URL / KLIKQRIS_KEY are not set.',
+      note: 'PAY_MODE=klikqris but KLIKQRIS_CREATE_URL / KLIKQRIS_KEY (or KLIKQRIS_API_KEY) are not set.',
     };
   }
 
   let res;
   try {
-    res = await fetch(url, {
+    res = await fetch(cfg.url, {
       method: 'POST',
-      headers: { 'content-type': 'application/json', 'x-api-key': key },
-      body: JSON.stringify({ amount: order.amount, ref_id: order.id }),
+      headers: { 'content-type': 'application/json', [cfg.header]: cfg.prefix + cfg.key },
+      body: JSON.stringify(requestBody(env, order)),
     });
   } catch (e) {
     throw new Error('gateway unreachable: ' + (e && e.message ? e.message : e));

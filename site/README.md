@@ -102,6 +102,28 @@ Useful for checking the Functions in the real runtime before touching the live
 store. It will not have your homepage or `/api/buy` - it is a preview of the
 overlay only.
 
+**Preview does not inherit production secrets.** Cloudflare keeps two separate
+environments, and a variable set for production is not visible to a preview
+deployment until it is added to the preview environment as well (dashboard:
+Settings -> Variables and Secrets -> Preview). Bindings and `[vars]` declared in
+the deploy config do apply to preview, which is why KV works there before any
+secret does.
+
+### D. What is already set up on the project
+
+Done for `demios` (direct upload, no Git connection):
+
+| | |
+|---|---|
+| KV namespace | `DEMIOS_ANDROID`, id `d6ff8b28077b43caad79594c87c7b407` |
+| Binding, both environments | `DEMIOS_KV` |
+| Production secrets | `LICENSE_SECRET`, `ADMIN_SECRET` added; the nine iOS secrets and the `KEYS` binding untouched |
+| Preview | `LICENSE_SECRET`, `ADMIN_SECRET`, `PAY_MODE=manual`, `ORDER_RATE_PER_HOUR=30` |
+| Preview branch | `android` -> https://android.demios.pages.dev/android |
+
+Production still needs `QRIS_STATIC` (or `PAY_MODE=klikqris`), and a deploy that
+includes the overlay. Everything else is in place.
+
 ---
 
 ## 2. Environment
@@ -115,7 +137,12 @@ overlay only.
 | `PAY_MODE` | var | no | `manual` (default) or `klikqris`. |
 | `ORDER_RATE_PER_HOUR` | var | no | orders per IP per hour, default `30`, `0` disables. |
 | `WEBHOOK_SECRET` | secret | no | enables `POST /api/android/webhook`. Without it the endpoint refuses everything. |
-| `KLIKQRIS_CREATE_URL`, `KLIKQRIS_KEY` | secret | only for `klikqris` | see §7. |
+| `KLIKQRIS_CREATE_URL` | secret | only for `klikqris` | the create endpoint. |
+| `KLIKQRIS_KEY` | secret | only for `klikqris` | the credential. Falls back to `KLIKQRIS_API_KEY`, which this project already has - so the existing secret is picked up with no new variable. |
+| `KLIKQRIS_MERCHANT_ID` | secret | no | sent as `merchant_id` when set. Already present in the project. |
+| `KLIKQRIS_AUTH_HEADER` | var | no | default `x-api-key`. Set `Authorization` if the account wants a bearer token. |
+| `KLIKQRIS_AUTH_PREFIX` | var | no | default empty. Set `Bearer ` (trailing space) with `Authorization`. |
+| `KLIKQRIS_BODY` | var | no | a JSON template with `{{amount}}`, `{{ref_id}}`, `{{merchant_id}}`. |
 | `KLIKQRIS_QR_FIELDS`, `KLIKQRIS_URL_FIELDS` | var | no | dotted paths into the gateway's JSON, comma separated. Set these instead of editing code when the response shape differs. |
 
 `LICENSE_SECRET` is the one that will bite. It was rotated off the placeholder
@@ -240,20 +267,39 @@ and the page says the key appears after the payment is confirmed.
 string or a payment URL at a list of known paths, then at whatever
 `KLIKQRIS_QR_FIELDS` / `KLIKQRIS_URL_FIELDS` say.
 
-Do not guess the account's shape. Ask it:
+Nothing about the account is assumed. The endpoint, the credential, the header
+name, the auth prefix and the request body all come from env (`KLIKQRIS_AUTH_HEADER`,
+`KLIKQRIS_AUTH_PREFIX`, `KLIKQRIS_BODY`, `KLIKQRIS_MERCHANT_ID`), so a gateway that
+wants `Authorization: Bearer <key>` and `{"nominal":"140000"}` is a set of
+variables, not a patch:
+
+```bash
+# what the account might be:
+KLIKQRIS_AUTH_HEADER=Authorization
+KLIKQRIS_AUTH_PREFIX="Bearer "
+KLIKQRIS_BODY='{"nominal":"{{amount}}","reff":"{{ref_id}}","merchant":"{{merchant_id}}"}'
+```
+
+Set `KLIKQRIS_API_KEY` and it is used as the credential when `KLIKQRIS_KEY` is
+absent - the project already has that secret, so there is nothing new to add.
+
+Do not guess the account's response shape. Ask it:
 
 ```bash
 node site/tools/pay_probe.mjs --url https://api.gateway/create --key sk_test_...
-# POST ... / status 200 / { ... }
+# POST ... / auth header x-api-key: sk_t...(24 chars) / body {...}
+# status 200 / { ... }
 # [ok] production would accept this response.
 # or:
 # [FAIL] no known field carries the QR or the payment URL.
-#        wrangler pages secret put KLIKQRIS_QR_FIELDS --project-name demios
+#        KLIKQRIS_QR_FIELDS=result.qris_content
 ```
 
-The probe runs the **same** `extract()` that production runs, so a green probe
-means the checkout will work - not that a second implementation agrees with
-itself. It creates no order and stores nothing.
+The probe runs the **same** `extract()`, `gatewayConfig()` and `requestBody()`
+that production runs, so a green probe means the checkout will work - not that a
+second implementation agrees with itself. It creates no order and stores nothing.
+Every knob is also a flag (`--auth-header`, `--auth-prefix`, `--body`, `--qr`,
+`--payment`), so a shape can be tried without exporting anything.
 
 Exit codes: `0` accepted, `2` nothing matched, `3` unreachable or HTTP error.
 
@@ -328,7 +374,38 @@ What each one actually proves:
 
 ---
 
-## 10. Troubleshooting
+## 10. Verified on the live deployment
+
+The overlay was deployed to the preview branch `android` and driven end to end,
+not just unit-tested. What was actually run and what came back:
+
+| step | result |
+|---|---|
+| `GET /android`, `/android-admin` | 200, `text/html` |
+| `GET /api/android/plans` | 200, `ready:false`, reason `QRIS_STATIC is not set`, 3 plans |
+| `POST /api/android/order {"plan":"a7d"}` | 200, `AND-XXXXXX`, 24-hex token, amount 140000, QR absent with an honest note |
+| `GET /api/android/order?id=..&token=..` | 200, `pending`, no key |
+| wrong token | 404 `no such order` |
+| `POST admin {action:"ping"}` | 200, `kv: bound`, `licenseSecret: set`, `webhookSecret: missing (webhooks disabled)` |
+| `POST admin {action:"list"}` | the pending order, and no token in the listing |
+| `POST admin {action:"paid"}` | 200, key `4772-4222-2222-ZSDE-5CA6` |
+| the same approve again | the identical key - no second licence |
+| buyer poll after approval | `paid` + that key |
+| `POST admin` with no secret / wrong secret | 401 |
+| `POST /api/android/webhook` unsigned | 503, fails closed |
+| the minted key, in the real `License.class` | `OK 1 7` |
+| the same key, in `keygen.py` | `ok (tier 1)` |
+| the same key, in `key.js` | `{"ok":true,"left":7}` |
+| `GET /api/android/_env` after cleanup | 404 - the temporary diagnostic is gone |
+
+The last three matter most: a key minted by the live site verifies in the Java
+class that ships inside the APK. That is the whole sale, in one line.
+
+The test orders were then deleted from KV, so the queue starts empty.
+
+---
+
+## 11. Troubleshooting
 
 | symptom | cause | fix |
 |---|---|---|
@@ -341,3 +418,4 @@ What each one actually proves:
 | order stuck at `pending` after payment | manual mode, nobody approved it | `/android-admin` -> MENUNGGU -> approve |
 | `webhooks are disabled` | `WEBHOOK_SECRET` unset | that is the default and it is safe; set it only if a gateway calls you |
 | the iOS store disappeared after deploying | `site/public` was deployed as the whole site | redeploy from the project root that has your `store.html`, then use `install.py` |
+| a preview deployment says a secret is not set | preview has its own environment; production secrets do not reach it | add the variable to the Preview environment (dashboard: Settings -> Variables and Secrets -> Preview) |

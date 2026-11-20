@@ -10,11 +10,13 @@
 //   unknown nesting       -> refused, with the env var to set
 //   unknown shape         -> refused, no silent empty checkout
 //   HTTP 500 / not JSON   -> refused with the status
+//   the account's own header and body shape are configurable, not assumed
 //
 // The probe is run as a subprocess too, because that is what the seller will use
 // against the live account.
 import http from 'node:http';
-import { present, extract, fieldList } from '../functions/_lib/pay.js';
+import { present, extract, fieldList, gatewayConfig, requestBody }
+  from '../functions/_lib/pay.js';
 import { payload as qrPayload } from '../functions/_lib/qr.js';
 import { withAmount, valid, amountOf } from '../functions/_lib/qris.js';
 
@@ -38,6 +40,8 @@ const ROUTES = {
   '/garbage': () => ({ foo: 'bar', nested: { nothing: true } }),
 };
 
+let seen = [];   // { path, header, apiKey, auth, body }
+
 async function start() {
   const server = http.createServer((req, res) => {
     let body = '';
@@ -48,13 +52,20 @@ async function start() {
         res.end(typeof obj === 'string' ? obj : JSON.stringify(obj));
       };
       if (req.method !== 'POST') return send(405, { error: 'POST only' });
-      if (req.headers['x-api-key'] !== 'probe-key') return send(401, { error: 'bad key' });
+
+      const apiKey = req.headers['x-api-key'];
+      const auth = req.headers.authorization;
+      if (apiKey !== 'probe-key' && auth !== 'Bearer probe-key') {
+        return send(401, { error: 'bad key' });
+      }
+
+      let parsed = null;
+      try { parsed = JSON.parse(body); } catch { /* ignored */ }
+      seen.push({ path: req.url, apiKey, auth, body: parsed });
 
       const route = ROUTES[req.url];
       if (route) {
-        let parsed = null;
-        try { parsed = JSON.parse(body); } catch { /* ignored */ }
-        if (!parsed || typeof parsed.amount !== 'number') return send(400, { error: 'no amount' });
+        if (!parsed || typeof parsed !== 'object') return send(400, { error: 'no body' });
         return send(200, route(parsed));
       }
       if (req.url === '/500') return send(500, { error: 'internal' });
@@ -80,12 +91,15 @@ async function main() {
   // ---- 1. the amount must be in the QR, not in the buyer's head ----------
   const expect = qrPayload(withAmount(STATIC, ORDER.amount));
   {
+    seen = [];
     const pay = await present(env('/flat-qr'), ORDER);
     check(pay.configured === true && pay.qr, 'flat qr_string -> a QR is returned');
     check(pay.qr.size === expect.size && pay.qr.bits === expect.bits,
       'the QR is the static code with this order\'s amount baked in',
       pay.qr.size + 'x' + pay.qr.size);
     check(pay.payUrl === null, 'no payUrl when a QR is present');
+    check(seen.length === 1 && seen[0].body.amount === 140000 && seen[0].body.ref_id === ORDER.id,
+      'the request carried this order\'s amount and id', JSON.stringify(seen[0] && seen[0].body));
   }
 
   // ---- 2. nested shapes are normal ---------------------------------------
@@ -144,14 +158,53 @@ async function main() {
     check(r2.qr === null && r2.url === null, 'deep unknown nesting yields null, not undefined');
   }
 
-  // ---- 8. the probe the seller will run ---------------------------------
+  // ---- 8. the credential name the existing project already uses ----------
+  {
+    const c = gatewayConfig({ KLIKQRIS_CREATE_URL: 'https://x', KLIKQRIS_API_KEY: 'abc' });
+    check(c.ready && c.key === 'abc',
+      'KLIKQRIS_API_KEY is accepted, so an existing secret works unchanged');
+    const c2 = gatewayConfig({ KLIKQRIS_CREATE_URL: 'https://x', KLIKQRIS_KEY: 'a', KLIKQRIS_API_KEY: 'b' });
+    check(c2.key === 'a', 'KLIKQRIS_KEY wins when both are set');
+
+    seen = [];
+    await present(env('/flat-qr', { KLIKQRIS_KEY: '', KLIKQRIS_API_KEY: 'probe-key' }), ORDER);
+    check(seen.length === 1, 'a call goes out with the fallback credential');
+  }
+
+  // ---- 9. header and body are configurable -------------------------------
+  {
+    seen = [];
+    await present(env('/flat-qr', { KLIKQRIS_AUTH_HEADER: 'Authorization', KLIKQRIS_AUTH_PREFIX: 'Bearer ' }), ORDER);
+    check(seen[0] && seen[0].auth === 'Bearer probe-key',
+      'Authorization: Bearer works when asked for', JSON.stringify(seen[0] && seen[0].auth));
+
+    seen = [];
+    await present(env('/flat-qr', { KLIKQRIS_MERCHANT_ID: 'M-123' }), ORDER);
+    check(seen[0] && seen[0].body.merchant_id === 'M-123',
+      'KLIKQRIS_MERCHANT_ID is sent when set', JSON.stringify(seen[0] && seen[0].body));
+
+    seen = [];
+    await present(env('/flat-qr', {
+      KLIKQRIS_MERCHANT_ID: 'M-123',
+      KLIKQRIS_BODY: '{"nominal":"{{amount}}","reff":"{{ref_id}}","merchant":"{{merchant_id}}"}',
+    }), ORDER);
+    check(seen[0] && seen[0].body.nominal === '140000' && seen[0].body.reff === ORDER.id
+      && seen[0].body.merchant === 'M-123',
+      'a custom body template is filled in', JSON.stringify(seen[0] && seen[0].body));
+
+    check(requestBody({}, ORDER).amount === 140000, 'the default body still works');
+    let threw = false;
+    try { requestBody({ KLIKQRIS_BODY: '{oops}' }, ORDER); } catch { threw = true; }
+    check(threw, 'a broken body template throws instead of sending half a request');
+  }
+
+  // ---- 10. the probe the seller will run --------------------------------
   {
     const { execFile } = await import('node:child_process');
     // Async on purpose: the fake gateway lives in this process, so blocking the
     // event loop with execFileSync would make the probe hang until the timeout.
-    const run = (path) => new Promise((resolve) => {
-      execFile(process.execPath,
-        ['tools/pay_probe.mjs', '--url', base(port, path), '--key', 'probe-key', '--amount', '1000'],
+    const run = (...argv) => new Promise((resolve) => {
+      execFile(process.execPath, ['tools/pay_probe.mjs', ...argv],
         { encoding: 'utf8', timeout: 30000 },
         (err, stdout, stderr) => resolve({
           code: err ? (typeof err.code === 'number' ? err.code : 1) : 0,
@@ -159,17 +212,23 @@ async function main() {
         }));
     });
 
-    const good = await run('/flat-qr');
+    const good = await run('--url', base(port, '/flat-qr'), '--key', 'probe-key', '--amount', '1000');
     check(good.code === 0 && /production would accept this response/.test(good.out),
       'pay_probe exits 0 on a shape production accepts', 'exit ' + good.code);
     check(/qr_string/.test(good.out), 'the probe names the field it picked');
+    check(/auth header/.test(good.out), 'and prints the header it used');
 
-    const meh = await run('/garbage');
+    const meh = await run('--url', base(port, '/garbage'), '--key', 'probe-key');
     check(meh.code === 2, 'pay_probe exits 2 when nothing matches', 'exit ' + meh.code);
     check(/KLIKQRIS_QR_FIELDS/.test(meh.out), 'and tells you which variable to set');
 
-    const boom = await run('/500');
+    const boom = await run('--url', base(port, '/500'), '--key', 'probe-key');
     check(boom.code === 3, 'pay_probe exits 3 on an HTTP error', 'exit ' + boom.code);
+
+    const custom = await run('--url', base(port, '/weird'), '--key', 'probe-key',
+      '--qr', 'result.qris_content');
+    check(custom.code === 0, 'the probe accepts the field list on the command line too',
+      'exit ' + custom.code);
   }
 
   server.close();

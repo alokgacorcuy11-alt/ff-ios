@@ -1,18 +1,21 @@
 // ===== tools/pay_probe.mjs - ask a real gateway to make one QR, and say what came back
 //
 // Guessing a payment gateway's response shape is how a shop ends up with orders
-// that look fine and never settle. This sends one create call with a test
-// amount and reports, using the *same* extract() that production uses:
+// that look fine and never settle. This sends one create call with a test amount
+// and reports, using the *same* functions production uses - extract() to choose
+// the field, gatewayConfig() to choose the header, requestBody() to build the
+// body. A green probe means the checkout will work, not that a second
+// implementation agrees with itself.
 //
 //   node tools/pay_probe.mjs --url https://api.gateway/create --key sk_test_...
 //   KLIKQRIS_CREATE_URL=... KLIKQRIS_KEY=... node tools/pay_probe.mjs
 //
 // It prints the status, the body (trimmed), which field was picked, and - when
-// nothing matches - the exact env var to set. Nothing is stored and no order is
-// created; ref_id is PROBE-<random>.
+// nothing matches - the exact env var to set. No order is created and nothing is
+// stored; ref_id is PROBE-<random>.
 //
 // Exit codes:  0 found something   2 nothing matched   3 unreachable / HTTP error
-import { extract, fieldList } from '../functions/_lib/pay.js';
+import { extract, fieldList, gatewayConfig, requestBody } from '../functions/_lib/pay.js';
 
 function args(argv) {
   const out = {};
@@ -27,39 +30,51 @@ function args(argv) {
 }
 
 const a = args(process.argv.slice(2));
-const url = a.url || process.env.KLIKQRIS_CREATE_URL || '';
-const key = a.key || process.env.KLIKQRIS_KEY || '';
+
+// The CLI wins over the environment, so a value can be tried without exporting it.
+const env = { ...process.env };
+if (a.url) env.KLIKQRIS_CREATE_URL = a.url;
+if (a.key) env.KLIKQRIS_KEY = a.key;
+if (a['auth-header']) env.KLIKQRIS_AUTH_HEADER = a['auth-header'];
+if (a['auth-prefix'] !== undefined) env.KLIKQRIS_AUTH_PREFIX = a['auth-prefix'];
+if (a['merchant-id']) env.KLIKQRIS_MERCHANT_ID = a['merchant-id'];
+if (a.body) env.KLIKQRIS_BODY = a.body;
+if (a.qr) env.KLIKQRIS_QR_FIELDS = a.qr;
+if (a.payment) env.KLIKQRIS_URL_FIELDS = a.payment;
+
+const cfg = gatewayConfig(env);
 const amount = Number(a.amount || 1000);
 const ref = a.ref || ('PROBE-' + Math.random().toString(36).slice(2, 8).toUpperCase());
 
-if (!url || !key) {
-  console.error('need --url and --key (or KLIKQRIS_CREATE_URL / KLIKQRIS_KEY)');
+if (!cfg.url || !cfg.key) {
+  console.error('need --url and --key (or KLIKQRIS_CREATE_URL + KLIKQRIS_KEY / KLIKQRIS_API_KEY)');
   process.exit(3);
 }
 
-// A body the way the adapter sends it, unless the account wants something else.
-const payload = a.body
-  ? JSON.parse(a.body)
-  : { amount, ref_id: ref };
+const order = { id: ref, amount };
 
-const env = {
-  KLIKQRIS_QR_FIELDS: a.qr || process.env.KLIKQRIS_QR_FIELDS || '',
-  KLIKQRIS_URL_FIELDS: a.payment || process.env.KLIKQRIS_URL_FIELDS || '',
-};
+let payload;
+try {
+  payload = requestBody(env, order);
+} catch (e) {
+  console.error('KLIKQRIS_BODY is not valid JSON once the placeholders are filled: ' + e.message);
+  process.exit(3);
+}
 
-const line = (k, v) => console.log(String(k).padEnd(14) + ' ' + v);
+const line = (k, v) => console.log(String(k).padEnd(16) + ' ' + v);
 
-console.log('POST ' + url);
-console.log('body ' + JSON.stringify(payload));
-console.log('qr fields   ' + fieldList(env, 'qr').join(', '));
-console.log('url fields  ' + fieldList(env, 'url').join(', '));
+console.log('POST ' + cfg.url);
+line('auth header', cfg.header + ': ' + cfg.prefix + cfg.key.slice(0, 4) + '...(' + cfg.key.length + ' chars)');
+line('body', JSON.stringify(payload));
+line('qr fields', fieldList(env, 'qr').join(', '));
+line('url fields', fieldList(env, 'url').join(', '));
 console.log();
 
 let res;
 try {
-  res = await fetch(url, {
+  res = await fetch(cfg.url, {
     method: 'POST',
-    headers: { 'content-type': 'application/json', 'x-api-key': key },
+    headers: { 'content-type': 'application/json', [cfg.header]: cfg.prefix + cfg.key },
     body: JSON.stringify(payload),
   });
 } catch (e) {
@@ -96,7 +111,8 @@ if (picked.qr || picked.url) {
 }
 
 console.log('[FAIL] no known field carries the QR or the payment URL.');
-console.log('       look at the JSON above and set, e.g.:');
-console.log('       wrangler pages secret put KLIKQRIS_QR_FIELDS --project-name demios');
-console.log('       # value: the dotted path of the string, comma separated if several');
+console.log('       look at the JSON above, then set the dotted path, e.g.:');
+console.log('         KLIKQRIS_QR_FIELDS=result.qris_content');
+console.log('         KLIKQRIS_URL_FIELDS=result.payment_link');
+console.log('       and pass --qr / --payment on the next run to confirm before saving.');
 process.exit(res.ok ? 2 : 3);

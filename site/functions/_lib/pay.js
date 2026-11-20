@@ -72,6 +72,50 @@ function manual(env, order) {
 }
 
 /**
+ * Pick the payment material out of a gateway response.
+ *
+ * Exported because tools/pay_probe.mjs runs this exact function against a live
+ * gateway, so what the probe reports is what production would do - not a second
+ * implementation that can drift.
+ *
+ * The field lists are overridable so a gateway with a different shape needs an
+ * env var, not a code edit:
+ *
+ *   KLIKQRIS_QR_FIELDS=result.qris_content,qr.payload
+ *   KLIKQRIS_URL_FIELDS=result.payment_link
+ */
+export function fieldList(env, which) {
+  const name = which === 'qr' ? 'KLIKQRIS_QR_FIELDS' : 'KLIKQRIS_URL_FIELDS';
+  const raw = env && env[name];
+  if (raw && String(raw).trim()) {
+    return String(raw).split(',').map((s) => s.trim()).filter(Boolean);
+  }
+  return which === 'qr'
+    ? ['qr_string', 'qrString', 'qris', 'qr_content', 'qris_content',
+      'data.qr_string', 'data.qrString', 'data.qris', 'data.qr_content', 'result.qr_string']
+    : ['qr_url', 'qrUrl', 'checkout_url', 'checkoutUrl', 'pay_url', 'payment_url',
+      'payment_link', 'data.qr_url', 'data.checkout_url', 'data.payment_url', 'result.payment_url'];
+}
+
+function dig(obj, path) {
+  return path.split('.').reduce((o, part) => (o && o[part] !== undefined ? o[part] : undefined), obj);
+}
+
+export function extract(env, data) {
+  const first = (paths) => {
+    for (const p of paths) {
+      const v = dig(data, p);
+      if (typeof v === 'string' && v) return { path: p, value: v };
+    }
+    return null;
+  };
+  return {
+    qr: first(fieldList(env, 'qr')),
+    url: first(fieldList(env, 'url')),
+  };
+}
+
+/**
  * klikqris adapter.
  *
  * Expected contract - edit this function if the account differs:
@@ -119,16 +163,9 @@ async function klikqris(env, order) {
     throw new Error('gateway ' + res.status + ': ' + text.slice(0, 200));
   }
 
-  const pick = (obj, keys) => {
-    for (const k of keys) {
-      const v = k.split('.').reduce((o, part) => (o && o[part] !== undefined ? o[part] : undefined), obj);
-      if (typeof v === 'string' && v) return v;
-    }
-    return null;
-  };
-
-  const qrString = pick(data, ['qr_string', 'qrString', 'qris', 'data.qr_string', 'data.qrString', 'data.qris']);
-  const payUrl = pick(data, ['qr_url', 'qrUrl', 'checkout_url', 'checkoutUrl', 'pay_url', 'payment_url', 'data.qr_url', 'data.checkout_url']);
+  const picked = extract(env, data);
+  const qrString = picked.qr && picked.qr.value;
+  const payUrl = picked.url && picked.url.value;
 
   if (qrString) {
     // Some gateways return a static code and expect the caller to add the
@@ -156,7 +193,8 @@ async function klikqris(env, order) {
     };
   }
 
-  throw new Error('gateway returned no qr_string and no url: ' + text.slice(0, 200));
+  throw new Error('gateway returned no qr_string and no url: ' + text.slice(0, 200)
+    + '  (set KLIKQRIS_QR_FIELDS / KLIKQRIS_URL_FIELDS to the real field names)');
 }
 
 /** Verify a webhook body. Fail closed when no secret is configured. */

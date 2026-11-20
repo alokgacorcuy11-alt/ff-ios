@@ -63,6 +63,10 @@ SUITES = [
     ("site draw     ", ROOT / "site" / "tests" / "test_site_draw.py"),
     # every id a script reaches for exists in the page, every asset exists
     ("site markup   ", ROOT / "site" / "tests" / "test_site_markup.py"),
+    # the klikqris adapter against a local fake gateway: 6 response shapes
+    ("site pay      ", ROOT / "site" / "tests" / "test_site_pay.py"),
+    # the installer, run against a fake project tree
+    ("site install  ", ROOT / "site" / "tests" / "test_site_install.py"),
 ]
 
 # The shell suites are not Python, so they need their own runner. They are

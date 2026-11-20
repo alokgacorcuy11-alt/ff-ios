@@ -29,7 +29,13 @@ import javax.crypto.spec.SecretKeySpec;
  */
 public final class License {
 
-    public static final String SECRET = "ganti-secret-ini-sama-yang-di-keygen-py-jangan-pakai-yang-ini";
+    // 48 chars of [A-Z2-9] = ~240 bits, no quoting or escaping hazard in Java,
+    // TOML or an env var. Rotated before the first sale, so there is no build
+    // in the wild signed with the old placeholder.
+    //
+    // This must equal LICENSE_SECRET on the Pages project. The site mints keys
+    // with it; the phone verifies with it. Drift = every key sold is dead.
+    public static final String SECRET = "YPZ6SPRGEEJXHF7CWXNQURYLTDY8NU487U3RP27C67QDSUXM";
 
     private static final String ALPHABET = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ";
     private static final int VERSION = 1;

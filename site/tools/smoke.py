@@ -48,6 +48,34 @@ ASSET_SUFFIXES = (".css", ".js", ".mjs", ".svg", ".png", ".jpg", ".jpeg", ".gif"
 OPTIONAL = {"/sitemap.xml", "/robots.txt"}
 
 
+# What a path's content-type must be. A stylesheet or script that answers with
+# HTML is the single-page-application fallback or a missing file, and the page
+# silently renders unstyled: the status is 200, so a status check passes it.
+EXPECTED_TYPE = {
+    ".css": "text/css",
+    ".js": "javascript",
+    ".mjs": "javascript",
+    ".svg": "image/svg+xml",
+    ".json": "application/json",
+    ".webmanifest": "application/json",
+    ".txt": "text/plain",
+    ".xml": "xml",
+    ".png": "image/png",
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".ico": "image/",
+    ".woff2": "font/woff2",
+}
+
+
+def type_ok(path: str, ctype: str) -> bool:
+    ext = path[path.rfind("."):].lower() if "." in path.rsplit("/", 1)[-1] else ""
+    want = EXPECTED_TYPE.get(ext)
+    if not want:
+        return True
+    return want in (ctype or "").lower()
+
+
 def is_asset(path: str) -> bool:
     return path.lower().endswith(ASSET_SUFFIXES)
 
@@ -151,8 +179,12 @@ def main() -> int:
         missing_critical = []
         for asset in assets:
             astatus, actype, _ = fetch(base + asset)
-            if astatus == 200:
+            if astatus == 200 and type_ok(asset, actype):
                 ok(f"  {asset} -> 200  {actype}")
+            elif astatus == 200:
+                bad(f"  {asset} -> 200 but {actype}: the file is not there and"
+                    f" something answered with a web page instead")
+                missing_critical.append(asset)
             elif asset in OPTIONAL:
                 warn(f"  {asset} -> {astatus}  (asset of the wider site, not of the overlay)")
             elif is_asset(asset):
@@ -203,6 +235,29 @@ def main() -> int:
             warn(f"{old} -> 200: the old URL still serves a page of its own")
         else:
             bad(f"{old} -> {st}: an old link is dead")
+
+    # ---- paths that must not exist ----------------------------------------
+    #
+    # This project once answered every unknown path with index.html and a 200,
+    # which made a missing stylesheet look like a working page. Both of these
+    # would have passed a status-only check.
+    print()
+    st, ctype, body = fetch(base + "/this-path-does-not-exist", "GET", follow=False)
+    if st == 404:
+        ok("an unknown path is a 404, not the storefront with a 200")
+    else:
+        bad(f"an unknown path answered {st} {ctype}: something is serving a page"
+            f" for every URL")
+
+    st, ctype, body = fetch(base + "/api/buy", "GET", follow=False)
+    if st == 404 and "json" in (ctype or ""):
+        ok("a removed API endpoint is a 404 in JSON, not a web page")
+        if b"removed" in body:
+            ok("  and says it was removed")
+    elif st == 404:
+        warn(f"a removed API endpoint is a 404 but {ctype}, not JSON")
+    else:
+        bad(f"/api/buy answered {st} {ctype}: the iOS endpoint should be gone")
 
     if a.skip_api:
         print()

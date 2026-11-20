@@ -117,13 +117,20 @@ Preview deployments get their own environment and do **not** inherit these.
 
 These are still set on the project and nothing reads them any more:
 `KEY_SECRET`, `ADMIN_KEYS`, `INSTALL_SECRET`, `CA_DER`, `CRON_SECRET`,
-`PROXY_HOST`, `PROXY_PORT`, and the `KEYS` KV binding.
+`PROXY_HOST`, `PROXY_PORT`, and the `DEMIOS_KEYS` namespace itself.
+
+The `KEYS` **binding** is gone: the first config-file deploy replaced the
+project's binding list with the one in `wrangler.toml`, which declares only
+`DEMIOS_KV`. The namespace and its id (`a2c74acb30d74af7bdda82a989bbfdb8`) are
+untouched - it currently lists zero keys, and the test orders created while
+probing the old storefront are gone from it, most likely expired by a TTL set in
+the iOS code. Nothing here ever wrote to it. If the iOS build comes back, its
+binding has to be added again.
 
 They are left alone deliberately. Secret values cannot be read back once
-written, and the KV namespace holds records that cannot be recovered if it is
-deleted. Remove them with `wrangler pages secret delete` and
-`wrangler kv namespace delete` only when you are sure the iOS build is not
-coming back.
+written, and a KV namespace cannot be un-deleted. Remove them with
+`wrangler pages secret delete` and `wrangler kv namespace delete` only when you
+are sure the iOS build is not coming back.
 
 `KLIKQRIS_API_KEY` and `KLIKQRIS_MERCHANT_ID` are the exception: `KLIKQRIS_KEY`
 falls back to `KLIKQRIS_API_KEY`, so the gateway credential that is already there
@@ -360,15 +367,26 @@ The site used to sell an iOS build as well. These were removed:
 Android store instead of a dead end. Change the status to `410` in
 `public/_redirects` if you would rather signal that they are gone.
 
-**Two things to know before you consider it finished:**
+A removed **API** endpoint is a 404 in JSON, not a redirect and not a web page:
+`functions/api/[[path]].js` answers the rest of `/api/`, and names the endpoint if
+it knows why it went. A client that asked for JSON would otherwise fail at parse
+time with something unhelpful.
+
+**Three things to know before you consider it finished:**
 
 1. An iOS client already installed in the field may still call `/api/config` for
-   its kill switch and feature flags. That endpoint is gone now and will 404.
-   Whatever it does on failure - keep going, or fall back to defaults - is what
-   it will do.
-2. Undoing this is a redeploy of the previous deployment, not a git revert: the
-   old files were never in this repository. Cloudflare keeps every deployment;
-   roll back from the dashboard, or redeploy from a copy of the old tree.
+   its kill switch and feature flags. That endpoint is gone and answers 404 with
+   a sentence. Whatever the client does on failure - keep going, or fall back to
+   defaults - is what it will do.
+2. Undoing this is a redeploy of an earlier deployment, not a git revert: those
+   files were never in this repository. Cloudflare keeps every deployment; the
+   previous one is reachable at its own `<hash>.demios.pages.dev` and can be
+   promoted back from the dashboard, or redeployed from a copy of the old tree.
+3. Cloudflare's edge cache still holds the old asset URLs. `/store.css` answers
+   from cache (`CF-Cache-Status: HIT`, `s-maxage=604800`) even though the file is
+   gone from origin, because that is how it was cached before the change. Nothing
+   links to those files and the entries expire on their own within the week.
+   Adding `?anything` to the URL bypasses the cache and shows the real 404.
 
 ---
 
@@ -416,4 +434,6 @@ Two bugs were found by doing that rather than by reading the code:
 | QR shows but no wallet reads it | the buyer's app is old, or the screen is too dim | the code is dark-on-white at ~1024 px; turn the brightness up |
 | order stuck at `pending` after payment | manual mode, nobody approved it | `/admin` -> MENUNGGU -> approve |
 | an old link 404s | it was removed with the iOS product and is not in `_redirects` | add it to `public/_redirects` |
+| an unknown path shows the storefront instead of a 404 | `not_found_handling` is not set, so the project falls back to serving index.html for everything | it is set to `404-page` in `wrangler.toml`; `deploy.py` fails if it goes missing |
+| a missing stylesheet still returns 200 | the same fallback: the browser gets HTML where CSS should be, and the page renders unstyled | `smoke.py` checks the content-type against the extension and fails on this |
 | `webhooks are disabled` | `WEBHOOK_SECRET` unset | that is the default and it is safe |

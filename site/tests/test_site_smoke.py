@@ -57,7 +57,9 @@ DECOY_CSS = ":root{--bg:#000}\nbody{margin:0}\n"
 
 
 class Pages(http.server.SimpleHTTPRequestHandler):
-    """Enough of Pages to be useful: clean URLs, and _redirects."""
+    """Enough of Pages to be useful: clean URLs, _redirects, and 404.html."""
+
+    spa = False
 
     def send_head(self):  # noqa: D102
         root = pathlib.Path(self.directory)
@@ -79,14 +81,24 @@ class Pages(http.server.SimpleHTTPRequestHandler):
         if path != "/" and "." not in path.rsplit("/", 1)[-1]:
             if (root / (path.lstrip("/") + ".html")).is_file():
                 self.path = path + ".html"
+
+        if self.spa and not (root / self.path.lstrip("/")).is_file():
+            # what this project actually used to do: answer every unknown path
+            # with index.html and a 200
+            self.path = "/index.html"
+
         return super().send_head()
 
     def log_message(self, *a):  # noqa: D102
         pass
 
 
-def serve(directory: str):
+def serve(directory: str, spa: bool = False):
     handler = functools.partial(Pages, directory=directory)
+    handler.spa = spa
+    # a class attribute, not an instance one: SimpleHTTPRequestHandler builds the
+    # instance inside the server
+    Pages.spa = spa
     httpd = socketserver.TCPServer(("127.0.0.1", 0), handler)
     httpd.allow_reuse_address = True
     threading.Thread(target=httpd.serve_forever, daemon=True).start()
@@ -166,7 +178,26 @@ def main() -> int:
         check(r.returncode == 1 and "/favicon.svg" in r.stdout,
               "a missing favicon is reported too")
 
-        # ---- 5. unreachable -------------------------------------------------
+        # ---- 5. the fallback that answers everything with the storefront ---
+        #
+        # This is what this project actually did for a while: every unknown path
+        # returned index.html with a 200, so a missing /store.css looked like a
+        # working page and a removed API endpoint answered with HTML.
+        spa = tmp / "spa"
+        build(spa)
+        (spa / "site.css").unlink()
+        httpd, port = serve(str(spa), spa=True)
+        servers.append(httpd)
+        r = run_smoke(f"http://127.0.0.1:{port}")
+        check(r.returncode == 1,
+              "an SPA fallback that answers 200 html for a missing stylesheet fails",
+              "exit " + str(r.returncode))
+        check("answered with a web page instead" in r.stdout,
+              "and says that is what happened")
+        check("serving a page for every URL" in r.stdout,
+              "and flags the unknown-path check")
+
+        # ---- 6. unreachable -------------------------------------------------
         r = run_smoke("http://127.0.0.1:1")
         check(r.returncode == 1, "an unreachable base exits 1 rather than crashing")
         check("[FAIL]" in r.stdout, "and says what failed")

@@ -51,6 +51,7 @@ REF_RE = re.compile(r"""(?:src|href)="(/[^"]*)\"""")
 PAGES = {
     "index.html": "app.js",
     "admin.html": None,   # its script is inline
+    "404.html": None,     # static, no script
 }
 
 # Pages that existed for the iOS product and must not come back by accident.
@@ -89,7 +90,11 @@ def main() -> int:
         check('href="/app.css"' in html, f"{name} uses the page deltas")
 
         defined = ids_of(html)
-        check(len(defined) >= 5, f"{name} defines {len(defined)} ids")
+        has_script = bool(script_name) or "<script>" in html
+        if has_script:
+            check(len(defined) >= 5, f"{name} defines {len(defined)} ids")
+        else:
+            check(True, f"{name} is static, no ids needed ({len(defined)} found)")
 
         scripts = inline_scripts(html)
         if script_name:

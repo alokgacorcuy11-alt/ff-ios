@@ -25,6 +25,7 @@ from __future__ import annotations
 import argparse
 import pathlib
 import re
+import shutil
 import subprocess
 import sys
 
@@ -35,11 +36,17 @@ LICENSE_JAVA = (ROOT / "android" / "app" / "app" / "src" / "main"
                 / "java" / "com" / "alokg" / "ffmenu" / "License.java")
 
 REQUIRED_FILES = [
-    "index.html", "admin.html", "site.css", "app.css", "app.js", "qr.js",
+    "index.html", "admin.html", "404.html", "site.css", "app.css", "app.js", "qr.js",
     "favicon.svg", "robots.txt", "sitemap.xml", "_redirects",
 ]
 REQUIRED_ROUTES = ["plans", "order", "admin", "webhook"]
 REQUIRED_LIB = ["http.js", "key.js", "orders.js", "pay.js", "plans.js", "qr.js", "qris.js"]
+
+# A JSON 404 for the whole /api/ namespace, so a client that asked for JSON never
+# receives a web page. `not_found_handling = "404-page"` in wrangler.toml is what
+# makes the pages 404 at all; without it this project answered every unknown path
+# with index.html and a 200.
+REQUIRED_CATCHALL = pathlib.Path("functions") / "api" / "[[path]].js"
 
 # Routes that were removed with the iOS product. A link to one of these is a
 # dangling link, not a redirect: the _redirects file handles visitors.
@@ -115,6 +122,20 @@ def main() -> int:
         else:
             bad(f"functions/_lib/{name} is missing")
 
+    cat = SITE / REQUIRED_CATCHALL
+    if cat.is_file() and "export function onRequest" in cat.read_text(encoding="utf-8"):
+        ok("functions/api/[[path]].js answers a JSON 404 for the rest of /api/")
+    else:
+        bad("functions/api/[[path]].js is missing - a removed endpoint would"
+            " answer with a web page")
+
+    toml = (SITE / "wrangler.toml").read_text(encoding="utf-8")
+    if 'not_found_handling = "404-page"' in toml:
+        ok('wrangler.toml sets not_found_handling = "404-page"')
+    else:
+        bad('wrangler.toml does not set not_found_handling - a deploy could answer'
+            ' every unknown path with index.html and a 200')
+
     # ---- 2. everything a page references must exist ----------------------
     print()
     referenced: set[str] = set()
@@ -173,9 +194,14 @@ def main() -> int:
 
     print()
     print("--- deploy ---------------------------------------------------")
-    cmd = ["npx", "wrangler", "pages", "deploy", "public",
+    # npx is a shell script on POSIX and npx.cmd on Windows; subprocess resolves
+    # neither on its own, and the failure is a bare WinError 2.
+    npx = shutil.which("npx") or shutil.which("npx.cmd")
+    cmd = [(npx or "npx"), "wrangler", "pages", "deploy", "public",
            "--project-name", a.project, "--branch", a.branch]
     print("  " + " ".join(cmd))
+    if npx is None:
+        bad("npx is not on PATH - install Node, or run the command above yourself")
     print()
     print("  secrets that must already be set (write-only, so set them if unsure):")
     print(f"    wrangler pages secret put LICENSE_SECRET --project-name {a.project}")

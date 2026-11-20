@@ -89,6 +89,18 @@ public final class Module {
      * Nothing is written; the caller decides where it lands.
      */
     public static byte[] payload(Context ctx) throws IOException {
+        return payload(ctx, true);
+    }
+
+    /**
+     * @param withTail append the random per-install tail. {@code false} writes
+     *     exactly the bytes the reference build writes - the compatibility mode,
+     *     for the case where the loader turns out to mind trailing bytes. The
+     *     patch format is length-delimited, so it should not, but "should" is not
+     *     the same as "tested on a phone", and a buyer who cannot install has no
+     *     second option.
+     */
+    public static byte[] payload(Context ctx, boolean withTail) throws IOException {
         byte[] container;
         try {
             container = readAll(ctx.getAssets().open(CONTAINER));
@@ -111,7 +123,7 @@ public final class Module {
         }
         String name = o.optString("name", "");
         String key = o.optString("key", "");
-        int tail = o.optInt("tail", DEFAULT_TAIL);
+        int tail = withTail ? o.optInt("tail", DEFAULT_TAIL) : 0;
         if (name.isEmpty() || key.length() != 64) {
             throw new IOException("manifest.json tidak lengkap (name/key)");
         }
@@ -132,7 +144,12 @@ public final class Module {
 
     /** Writes straight into the directory. Throws when Android refuses. */
     public static String installDirect(Context ctx) throws IOException {
-        byte[] bytes = payload(ctx);
+        return installDirect(ctx, true);
+    }
+
+    /** @param withTail see {@link #payload(Context, boolean)} */
+    public static String installDirect(Context ctx, boolean withTail) throws IOException {
+        byte[] bytes = payload(ctx, withTail);
         File dir = new File(dir());
         if (!dir.isDirectory()) {
             throw new IOException("Folder game tidak ditemukan. Buka Free Fire dulu sekali.");
@@ -155,7 +172,8 @@ public final class Module {
                 throw new IOException("Tidak bisa memindahkan file ke folder game");
             }
         }
-        return "Modul terpasang (" + bytes.length + " byte). Tutup game, lalu buka lagi.";
+        return "Modul terpasang (" + bytes.length + " byte"
+                + (withTail ? "" : ", mode tanpa tail") + "). Tutup game, lalu buka lagi.";
     }
 
     // ---- install: system picker -------------------------------------------
@@ -166,6 +184,11 @@ public final class Module {
      * writing to a folder the game never reads.
      */
     public static String installTree(Context ctx, Uri tree) throws IOException {
+        return installTree(ctx, tree, true);
+    }
+
+    /** @param withTail see {@link #payload(Context, boolean)} */
+    public static String installTree(Context ctx, Uri tree, boolean withTail) throws IOException {
         ContentResolver r = ctx.getContentResolver();
         String treeId;
         try {
@@ -177,7 +200,7 @@ public final class Module {
             throw new IOException("Pilih tepat Android/data/" + GAME + "/files");
         }
 
-        byte[] bytes = payload(ctx);
+        byte[] bytes = payload(ctx, withTail);
         Uri parent = DocumentsContract.buildDocumentUriUsingTree(tree, treeId);
 
         // A leftover copy would make createDocument pick a suffixed name, and
@@ -212,7 +235,8 @@ public final class Module {
             }
             throw new IOException("File yang ditulis tidak sesuai dengan aslinya");
         }
-        return "Modul terpasang (" + bytes.length + " byte). Tutup game, lalu buka lagi.";
+        return "Modul terpasang (" + bytes.length + " byte"
+                + (withTail ? "" : ", mode tanpa tail") + "). Tutup game, lalu buka lagi.";
     }
 
     // ---- helpers -----------------------------------------------------------

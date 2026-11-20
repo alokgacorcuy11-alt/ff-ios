@@ -179,6 +179,32 @@ public final class Bridge {
         }
     }
 
+    /**
+     * One line that says which layer is missing.
+     *
+     * <p>Pulled out of the activity so it can be tested without a phone: the
+     * whole point is to tell a buyer where it stopped, and a message that is only
+     * assembled inside a click handler is a message nobody has read.
+     *
+     * @param fileThere whether the patch is in the game's folder
+     * @param size      its size in bytes, or -1
+     * @param alive     whether the module answered on loopback
+     */
+    public static String verdict(boolean fileThere, long size, boolean alive) {
+        if (!fileThere) {
+            return "cek: patch BELUM ada di folder game - tekan INSTALL dulu";
+        }
+        if (size <= 0) {
+            return "cek: patch ada tapi kosong - tekan INSTALL lagi";
+        }
+        if (alive) {
+            return "cek: patch ada (" + size + " B) | modul MENJAWAB";
+        }
+        return "cek: patch ada (" + size + " B) | modul TIDAK menjawab"
+                + " - tutup lalu buka ulang game."
+                + " kalau tetap: tekan LAMA tombol INSTALL (mode tanpa tail), buka game lagi";
+    }
+
     public Status status() throws IOException {
         return parse(get("/xyz/fov3-status"));
     }

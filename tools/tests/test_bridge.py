@@ -239,6 +239,25 @@ def main() -> int:
     code, body = run("fov", "1", "201")
     check("fov 201 is rejected", code == 4, f"exit {code} {body}")
 
+    # --- the verdict line a buyer is shown ---------------------------------
+    #
+    # This is what the app prints when MIRROR is tapped. It is the only thing
+    # standing between "it does not work" and "the patch is not installed", so it
+    # is tested as a function rather than assembled inside a click handler.
+    code, body = run("verdict", "0", "-1", "0")
+    check("no patch yet: says to install", "INSTALL" in body, body)
+
+    code, body = run("verdict", "1", "0", "0")
+    check("empty patch: says to install again", "INSTALL" in body, body)
+
+    code, body = run("verdict", "1", "121084", "1")
+    check("patch + module answering: says it is ready",
+          "MENJAWAB" in body and "121084" in body, body)
+
+    code, body = run("verdict", "1", "121084", "0")
+    check("patch but no answer: names the two next steps",
+          "TIDAK menjawab" in body and "INSTALL" in body and "tail" in body, body)
+
     shutil.rmtree(tmp, ignore_errors=True)
     print()
     if FAIL:

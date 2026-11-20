@@ -35,6 +35,12 @@ public final class BridgeHarness {
             System.out.println(Bridge.ORIGIN);
             return;
         }
+        if ("verdict".equals(mode)) {
+            // verdict <fileThere 0|1> <size> <alive 0|1>
+            System.out.println(Bridge.verdict("1".equals(args[1]),
+                    Long.parseLong(args[2]), "1".equals(args[3])));
+            return;
+        }
 
         Bridge b = new Bridge("127.0.0.1", Integer.parseInt(args[1]), 2000);
         try {

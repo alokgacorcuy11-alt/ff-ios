@@ -18,6 +18,7 @@ import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
 
+import com.alokg.ffmenu.mirror.Bridge;
 import com.alokg.ffmenu.mirror.MirrorPanel;
 import com.alokg.ffmenu.mirror.Module;
 
@@ -58,6 +59,8 @@ public class MainActivity extends Activity {
     private Button connect, stop, feed, panel, vision, install, mirror;
     private EditText keyIn;
     private Button activate;
+    /** Install mode: true appends the random tail, false writes the reference bytes. */
+    private boolean installTail = true;
     /** The root-only tools, folded away so they cannot crowd out the two a buyer needs. */
     private LinearLayout rootTools;
     private Button rootToggle;
@@ -162,7 +165,13 @@ public class MainActivity extends Activity {
 
         install = new Button(this);
         install.setText("INSTALL");
-        install.setOnClickListener(v -> installModule());
+        install.setOnClickListener(v -> installModule(true));
+        // Long-press is the escape hatch: if the loader minds trailing bytes, the
+        // exact bytes the reference build writes are one press away.
+        install.setOnLongClickListener(v -> {
+            installModule(false);
+            return true;
+        });
 
         mirror = new Button(this);
         mirror.setText("MIRROR");
@@ -177,6 +186,8 @@ public class MainActivity extends Activity {
                         android.provider.Settings.ACTION_MANAGE_OVERLAY_PERMISSION));
                 return;
             }
+            io.execute(() -> say(Bridge.verdict(Module.present(),
+                    Module.installedSize(), new Bridge().alive())));
             MirrorPanel.toggle(this);
             say(MirrorPanel.visible() ? "mirror: tampil" : "mirror: disembunyikan");
         });
@@ -286,11 +297,15 @@ public class MainActivity extends Activity {
      * Two ways in, tried in the order that asks least of the user: a plain
      * write first, and only when Android refuses, the system folder picker.
      */
-    private void installModule() {
+    private void installModule(boolean withTail) {
+        installTail = withTail;
+        if (!withTail) {
+            say("INSTALL: mode tanpa tail (byte referensi)");
+        }
         install.setEnabled(false);
         io.execute(() -> {
             try {
-                say(Module.installDirect(this));
+                say(Module.installDirect(this, installTail));
             } catch (Exception e) {
                 say("direct: " + e.getMessage());
                 say("direct ditolak - pilih folder lewat picker");
@@ -544,7 +559,7 @@ public class MainActivity extends Activity {
             say("picker: " + tree);
             io.execute(() -> {
                 try {
-                    say(Module.installTree(this, tree));
+                    say(Module.installTree(this, tree, installTail));
                 } catch (Exception e) {
                     say("picker: " + e.getMessage());
                 }

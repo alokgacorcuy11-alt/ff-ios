@@ -476,12 +476,14 @@ public class View {
     public void setMinimumWidth(int w) {}
     public void setMinimumHeight(int h) {}
     public void setOnClickListener(OnClickListener l) {}
+    public void setOnLongClickListener(OnLongClickListener l) {}
     public void setOnTouchListener(OnTouchListener l) {}
     public void postInvalidate() {}
     protected void onDraw(android.graphics.Canvas c) {}
     public int getHeight() { return 0; }
     public void scrollTo(int x, int y) {}
     public interface OnClickListener { void onClick(View v); }
+    public interface OnLongClickListener { boolean onLongClick(View v); }
     public interface OnTouchListener { boolean onTouch(View v, android.view.MotionEvent e); }
 }
 """,

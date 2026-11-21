@@ -33,7 +33,9 @@ jobs:
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: "17"
+          # 21, not 17: the base's gallery stub sets source/target 21, and javac
+          # says "invalid source release: 21" rather than degrading.
+          java-version: "21"
 
       - name: get the base
         run: |

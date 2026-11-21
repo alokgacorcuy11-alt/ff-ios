@@ -38,6 +38,7 @@ SOURCES = [
     "com/alokg/ffmenu/mirror/Module.java",
     "com/alokg/ffmenu/mirror/MirrorPanel.java",
     "com/alokg/ffmenu/mirror/Profile.java",
+    "com/alokg/ffmenu/vision/Detector.java",
 ]
 
 # Every stub member below exists in the real API with the same signature. If a

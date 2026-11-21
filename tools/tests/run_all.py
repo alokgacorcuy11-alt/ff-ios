@@ -49,6 +49,8 @@ SUITES = [
     ("feed          ", HERE / "test_feed.py"),
     # keys issued in python, checked by the real java verifier
     ("license       ", HERE / "test_license.py"),
+    # the screen detector, against synthetic frames whose answer is known
+    ("vision        ", HERE / "test_vision.py"),
     # the panel's saved settings, parsed and re-emitted by the real java class
     ("profile       ", HERE / "test_profile.py"),
     # the panel's control surface, driven against a real socket

@@ -77,3 +77,10 @@ android {
 tasks.withType<org.gradle.api.tasks.compile.JavaCompile>().configureEach {
     options.encoding = "UTF-8"
 }
+
+// Note for whoever reads this next: the APK is deliberately this small. The
+// supervisor app writes one file and draws one window; everything else is in
+// the module inside the game. That is why there is no native code here, no
+// media projection and no accessibility service - nothing to declare that an
+// installer would have to weigh.
+

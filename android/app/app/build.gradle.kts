@@ -26,7 +26,11 @@ android {
         applicationId = appId
         minSdk = 26
         targetSdk = 34
-        versionCode = 1
+        // Incremented per release on purpose: an install over the same
+        // versionCode is allowed but pointless, and "aplikasi tidak terpasang"
+        // is the message Android gives when it is not sure what it is
+        // replacing. A number that always goes up removes the question.
+        versionCode = 2
         versionName = "1.0"
         resValue("string", "app_name", appLabel)
     }

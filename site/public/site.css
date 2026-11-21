@@ -225,3 +225,7 @@ b{font-weight:700}
   .scan::after{display:none}
   .ticker-track{animation:none}
 }
+/* Unduh: catatan ukuran berkas, di luar grid .dl supaya tidak menggeser tata letaknya. */
+.apk-note{font-family:var(--fm);font-size:10.5px;color:#5f7086;line-height:1.75;margin:10px 2px 0}
+.apk-note b{color:var(--dim);font-weight:600}
+.apk-note a{color:var(--dim);border-bottom:1px solid #30363d}

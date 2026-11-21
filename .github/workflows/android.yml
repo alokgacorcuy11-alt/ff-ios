@@ -11,8 +11,10 @@ on:
   push:
     branches: [main]
     paths:
+      # The APK does not depend on the storefront, so a change to the page
+      # alone must not rebuild it: every rebuild produces a different sha256
+      # (zip timestamps), and the page prints the hash of the file it serves.
       - "android/**"
-      - "site/**"
       - "tools/**"
       - ".github/workflows/android.yml"
   workflow_dispatch:

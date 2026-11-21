@@ -58,25 +58,31 @@
   }
 
   // ---- build identity ----------------------------------------------------
-  // Fetched live from the build branch so the hash on the page is the hash of
-  // the APK behind the button, not one that went stale after the next build.
+  // The hash is computed from the file this page actually hands over, not read
+  // from a description of it somewhere else. A hash that comes from a second
+  // source can drift from the bytes behind the button, and a hash that does not
+  // match the file it is printed next to is worse than no hash at all.
   async function identity() {
     const el = $('apkHash');
     if (!el) return;
+    const btn = $('dlBtn');
+    const href = (btn && btn.getAttribute('href')) || '/ffmenu.apk';
     try {
-      const r = await fetch('https://raw.githubusercontent.com/alokgacorcuy11-alt/ff-ios/build/IDENTITY.txt', { cache: 'no-store' });
+      const r = await fetch(href, { cache: 'no-store' });
       if (!r.ok) throw new Error('HTTP ' + r.status);
-      const text = await r.text();
-      const pkg = (/^package:\s*(.+)$/m.exec(text) || [])[1];
-      const sha = (/^apk:\s*([0-9a-f]{64})$/m.exec(text) || [])[1];
-      const sdk = (/^sdk:\s*(.+)$/m.exec(text) || [])[1];
-      el.innerHTML = sha
-        ? `<b>sha256</b> ${esc(sha.slice(0, 16))}&hellip;${esc(sha.slice(-8))}`
-          + (pkg ? ` &middot; <b>pkg</b> ${esc(pkg)}` : '')
-          + (sdk ? ` &middot; <b>sdk</b> ${esc(sdk)}` : '')
-        : '<b>sha256</b> lihat SHA256SUMS di cabang build';
+      const buf = await r.arrayBuffer();
+      const meta = $('apkMeta');
+      if (meta) {
+        meta.textContent = Math.round(buf.byteLength / 1024) + ' KB \u00b7 '
+          + buf.byteLength.toLocaleString('id-ID') + ' byte \u00b7 android 8+ \u00b7 arm64';
+      }
+      const d = await crypto.subtle.digest('SHA-256', buf);
+      const sha = [...new Uint8Array(d)].map(b => b.toString(16).padStart(2, '0')).join('');
+      el.innerHTML = '<b>sha256</b> ' + esc(sha.slice(0, 16)) + '&hellip;' + esc(sha.slice(-8))
+        + ' &middot; <b>' + buf.byteLength.toLocaleString('id-ID') + '</b> byte';
+      el.title = sha;
     } catch {
-      el.innerHTML = '<b>sha256</b> lihat <a href="https://github.com/alokgacorcuy11-alt/ff-ios/blob/build/SHA256SUMS" rel="noopener" style="color:var(--red)">SHA256SUMS</a>';
+      el.innerHTML = '<b>sha256</b> tidak bisa diperiksa di browser ini';
     }
   }
 
@@ -276,7 +282,7 @@
     $('oKey').classList.remove('hidden');
     $('oKeyVal').textContent = key;
     setStatus('paid', 'selesai');
-    $('oHint').textContent = '// buka app FFMenu, tempel key ini, tekan ACTIVE.';
+    $('oHint').textContent = '// buka app Toolbox, tempel key ini, tekan KEY.';
     $('oKey').scrollIntoView({ behavior: REDUCED ? 'auto' : 'smooth', block: 'center' });
     if (poll) { clearInterval(poll); poll = null; }
     $('again').classList.remove('hidden');

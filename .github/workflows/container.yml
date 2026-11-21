@@ -60,6 +60,11 @@ jobs:
           "$SM" "ndk;29.0.13846066" > /dev/null 2>&1 || true
           ls "$ANDROID_SDK_ROOT/ndk" || true
 
+      - name: patch the base
+        run: |
+          set -euo pipefail
+          python3 container/patch_split_selection.py base
+
       - uses: gradle/actions/setup-gradle@v3
         with:
           gradle-version: "8.13"

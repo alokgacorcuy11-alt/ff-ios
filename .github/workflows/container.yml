@@ -12,6 +12,11 @@ name: container
 # commit it came from.
 
 on:
+  # A push that touches this file rebuilds it, so a first run does not need a
+  # trip through the Actions tab.
+  push:
+    paths:
+      - ".github/workflows/container.yml"
   workflow_dispatch:
 
 permissions:

@@ -37,6 +37,7 @@ SOURCES = [
     "com/alokg/ffmenu/mirror/Bridge.java",
     "com/alokg/ffmenu/mirror/Module.java",
     "com/alokg/ffmenu/mirror/MirrorPanel.java",
+    "com/alokg/ffmenu/mirror/Profile.java",
 ]
 
 # Every stub member below exists in the real API with the same signature. If a
@@ -53,6 +54,7 @@ public class Context {
     public android.content.ContentResolver getContentResolver() { return null; }
     public android.content.res.AssetManager getAssets() { return null; }
     public android.content.res.Resources getResources() { return null; }
+    public java.io.File getFilesDir() { return null; }
 }
 """,
     "android/provider/Settings.java": """
@@ -79,11 +81,26 @@ public class ContentResolver {
     public java.io.InputStream openInputStream(android.net.Uri u)
             throws java.io.FileNotFoundException { return null; }
     public void takePersistableUriPermission(android.net.Uri u, int flags) {}
+    public void releasePersistableUriPermission(android.net.Uri u, int flags) {}
+    public android.database.Cursor query(android.net.Uri u, String[] projection,
+            String selection, String[] selectionArgs, String sortOrder) { return null; }
+}
+""",
+    "android/database/Cursor.java": """
+package android.database;
+public interface Cursor extends java.io.Closeable {
+    boolean moveToFirst();
+    boolean isNull(int columnIndex);
+    long getLong(int columnIndex);
+    int getColumnIndex(String name);
 }
 """,
     "android/net/Uri.java": """
 package android.net;
-public class Uri {}
+public class Uri {
+    public static Uri parse(String s) { return null; }
+    public String toString() { return ""; }
+}
 """,
     "android/os/Environment.java": """
 package android.os;
@@ -104,6 +121,11 @@ public final class DocumentsContract {
             android.net.Uri parent, String mime, String name) { return null; }
     public static boolean deleteDocument(android.content.ContentResolver r, android.net.Uri d) {
         return true;
+    }
+    public static final class Document {
+        public static final String COLUMN_DOCUMENT_ID = "document_id";
+        public static final String COLUMN_SIZE = "_size";
+        public static final String COLUMN_DISPLAY_NAME = "_display_name";
     }
 }
 """,
@@ -395,8 +417,7 @@ public class ImageReader implements AutoCloseable {
     public void close() {}
 }
 """,
-    "android/app/Activity.java": """
-package android.app;
+    "android/app/Activity.java": """package android.app;
 public class Activity extends android.content.Context {
     public static final int RESULT_OK = -1;
     public static final int RESULT_CANCELED = 0;
@@ -411,6 +432,7 @@ public class Activity extends android.content.Context {
     public boolean stopService(android.content.Intent i) { return true; }
     public android.content.pm.ApplicationInfo getApplicationInfo() { return null; }
     public java.io.File getFilesDir() { return null; }
+    public boolean isFinishing() { return false; }
     public android.content.res.AssetManager getAssets() { return null; }
     public android.content.res.Resources getResources() { return null; }
 }

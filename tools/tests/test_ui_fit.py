@@ -28,6 +28,7 @@ HERE = pathlib.Path(__file__).resolve().parent
 ROOT = HERE.parent.parent
 SRC = ROOT / "android" / "app" / "app" / "src" / "main"
 MAIN = SRC / "java" / "com" / "alokg" / "ffmenu" / "MainActivity.java"
+MODULE_SRC = SRC / "java" / "com" / "alokg" / "ffmenu" / "mirror" / "Module.java"
 MANIFEST = SRC / "AndroidManifest.xml"
 
 PASS = 0
@@ -87,8 +88,8 @@ def main() -> int:
     crowded = {c: k for c, k in rows.items() if len(k) > 3}
     check(not crowded, "no horizontal row holds more than three buttons",
           str(crowded) if crowded else ", ".join(f"{c}={len(k)}" for c, k in rows.items()))
-    check(len(rows.get("primary", [])) == 2 and set(rows["primary"]) == {"install", "mirror"},
-          "INSTALL and MIRROR share the first row of their own",
+    check(len(rows.get("primary", [])) == 2 and set(rows["primary"]) == {"toggle", "mirror"},
+          "the on/off switch and MIRROR share the first row of their own",
           str(rows.get("primary")))
 
     # ---- 4. the style floor that caused the truncation is cleared --------
@@ -117,11 +118,32 @@ def main() -> int:
 
     # ---- 7. labels stay short enough to fit three across ----------------
     labels = {n: t for n, t in LABEL.findall(java) if n in {
-        "install", "mirror", "activate"}}
-    check(len(labels) == 3, f"all {len(labels)} button labels found", str(sorted(labels)))
+        "toggle", "mirror", "activate"}}
+    check(len(labels) == 3, f"all {len(labels)} fixed labels found", str(sorted(labels)))
+    # autoclean's label is not a literal: it says which state the setting is in,
+    # so it is checked for membership in the one styling loop instead.
+    check("autoclean" in java and r"new Button[]{toggle, mirror, activate, autoclean}" in java,
+          "and the auto-clean switch is styled with the rest")
     long_ones = {n: t for n, t in labels.items() if len(t) > 12}
     check(not long_ones, "no button label is too long to fit a third of the width",
           str(long_ones) if long_ones else ", ".join(sorted(labels.values())))
+
+    # ---- 8. "off" has to actually put the phone back ---------------------
+    #
+    # What the app changes on the phone is one file. If this ever stops being
+    # undone, the buyer is left with a modified game folder and no way to know
+    # - which is the exact complaint this screen exists to answer.
+    check("Module.remove" in java, "the app can take the module back out")
+    check("isFinishing()" in java and "onDestroy" in java,
+          "leaving the app removes it, but a rebuild or a low-memory teardown does not")
+    check("autoClean" in java and "CLEAN_FILE" in java,
+          "and that behaviour is a setting the buyer can see and flip")
+    check("BERSIH" in java,
+          "the screen says out loud whether anything is left on the phone")
+    check("releasePersistableUriPermission" in MODULE_SRC.read_text(encoding="utf-8"),
+          "the folder grant is handed back, not just the file deleted")
+    check("writeOwn(KEY_FILE" in java and "KEY_FILE" in java,
+          "the key is stored, so it is pasted once and not once per session")
 
     print()
     print(f"ui fit: {PASS} ok, {FAIL} failed")

@@ -49,6 +49,8 @@ SUITES = [
     ("feed          ", HERE / "test_feed.py"),
     # keys issued in python, checked by the real java verifier
     ("license       ", HERE / "test_license.py"),
+    # the panel's saved settings, parsed and re-emitted by the real java class
+    ("profile       ", HERE / "test_profile.py"),
     # the panel's control surface, driven against a real socket
     ("bridge        ", HERE / "test_bridge.py"),
     # the android storefront: keys minted by the site, checked by License.java

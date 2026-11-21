@@ -31,31 +31,34 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
 /**
- * The buyer's screen, and nothing else: a key, an install, a panel.
- *
- * <p>The earlier build also carried the research harness - a root daemon, a
- * UDP config listener, a screen-capture aim path and an accessibility service.
- * None of it was reachable from the product, but all of it was declared, and
- * that is what an installer's scanner reads. Accessibility plus screen capture
- * is the exact pair that makes a sideloaded APK look like malware, so both are
- * gone. What is left asks for two permissions: draw over other apps, and the
- * network (a loopback socket needs it).
- *
- * <p>The flow is three taps and survives a restart:
+ * One screen, and it owns the whole thing.
  *
  * <pre>
- *   paste key  ->  key is written to files/key and verified offline
- *              ->  module missing? the install starts by itself
- *              ->  open Free Fire, press MIRROR
+ *   tempel key   ->  satu kali, disimpan
+ *   AKTIFKAN     ->  modul dipasang
+ *   buka game    ->  MIRROR, setelan yang dulu tersimpan dipasang sendiri
+ *   MATIKAN / tutup app  ->  modul dihapus, izin folder dilepas
  * </pre>
  *
- * <p>Nothing here reaches the network except 127.0.0.1:7755, where the module
- * answers. No account, no server, no telemetry.
+ * <p>The last line is the point of this screen. What the app changes on the
+ * phone is exactly one file in the game's folder, so "off" is not a mode, a
+ * system setting or a background process - it is that file being deleted,
+ * verified deleted, and the one folder permission the app had been holding
+ * handed back to the system. Nothing else was altered, so nothing else has to
+ * be undone.
+ *
+ * <p>Auto-clean is on by default and there are two triggers: leaving the app,
+ * and starting it. Starting as well, because a process can be killed without
+ * ever getting the chance to tidy up - and a phone that is clean at the start
+ * of every session is the same promise kept, whichever way the last session
+ * ended.
  */
 public class MainActivity extends Activity {
 
     /** Where the key is kept between launches. */
     private static final String KEY_FILE = "key";
+    /** Whether closing the app should put the phone back as it was. */
+    private static final String CLEAN_FILE = "auto-bersih";
     private static final int REQ_TREE = 0x52;
 
     private final ExecutorService io = Executors.newSingleThreadExecutor();
@@ -64,9 +67,11 @@ public class MainActivity extends Activity {
 
     private TextView out;
     private EditText keyIn;
-    private Button activate, install, mirror;
+    private Button activate, toggle, mirror, autoclean;
     /** Install mode: true appends the random tail, false writes the reference bytes. */
     private boolean installTail = true;
+    /** Put the phone back as it was when the app is left. */
+    private boolean autoClean = true;
 
     @Override
     protected void onCreate(Bundle b) {
@@ -82,8 +87,7 @@ public class MainActivity extends Activity {
         // Everything lives inside a scrolling viewport. A fixed column pushed
         // its last row off the screen on a short phone, or as soon as the system
         // font was turned up - which is what "the buttons are cut off" was.
-        // fillViewport keeps the log elastic when there IS room: it stretches
-        // into the leftover space instead of leaving a gap above the controls.
+        // fillViewport keeps the log elastic when there IS room.
         ScrollView scroller = new ScrollView(this);
         scroller.setFillViewport(true);
         scroller.setBackgroundColor(Color.parseColor("#0d1117"));
@@ -128,19 +132,22 @@ public class MainActivity extends Activity {
                 LinearLayout.LayoutParams.WRAP_CONTENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT));
 
-        install = new Button(this);
-        install.setText("INSTALL");
-        install.setOnClickListener(v -> installModule(true));
-        // Long-press is the escape hatch: if the loader minds trailing bytes, the
-        // exact bytes the reference build writes are one press away.
-        install.setOnLongClickListener(v -> {
-            installModule(false);
+        toggle = new Button(this);
+        toggle.setText("AKTIFKAN");
+        toggle.setOnClickListener(v -> toggleModule());
+        // Long-press is the panic button: everything this app ever wrote goes,
+        // including the key, so a phone can be handed over without a trace.
+        toggle.setOnLongClickListener(v -> {
+            wipe();
             return true;
         });
 
         mirror = new Button(this);
         mirror.setText("MIRROR");
         mirror.setOnClickListener(v -> openMirror());
+
+        autoclean = new Button(this);
+        autoclean.setOnClickListener(v -> setAutoClean(!autoClean));
 
         // ---- the key, then the two buttons a buyer actually needs -----------
         LinearLayout.LayoutParams kr = new LinearLayout.LayoutParams(
@@ -151,14 +158,15 @@ public class MainActivity extends Activity {
 
         LinearLayout primary = new LinearLayout(this);
         primary.setOrientation(LinearLayout.HORIZONTAL);
-        primary.addView(install, cell());
+        primary.addView(toggle, cell());
         primary.addView(mirror, cell());
         column.addView(primary, spaced(dp(6)));
+        column.addView(autoclean, spaced(dp(6)));
 
         // One place to style every control. The material button style insists
         // on an ~88dp minimum width; five of those do not fit across a phone, so
         // labels came out as "CONNEC..." instead of being readable.
-        for (Button btn : new Button[]{install, mirror, activate}) {
+        for (Button btn : new Button[]{toggle, mirror, activate, autoclean}) {
             btn.setTextSize(12);
             btn.setMinWidth(0);
             btn.setMinimumWidth(0);
@@ -166,15 +174,18 @@ public class MainActivity extends Activity {
         }
 
         TextView hint = new TextView(this);
-        hint.setText("1) tempel key   2) INSTALL   3) buka game, tekan MIRROR");
+        hint.setText("1) tempel key   2) AKTIFKAN   3) buka game, tekan MIRROR");
         hint.setTextColor(Color.parseColor("#8b949e"));
         hint.setTypeface(Typeface.MONOSPACE);
         hint.setTextSize(10);
-        hint.setPadding(dp(2), dp(6), dp(2), 0);
+        hint.setPadding(dp(2), dp(8), dp(2), 0);
         column.addView(hint);
 
         scroller.addView(column);
         setContentView(scroller);
+
+        autoClean = !"0".equals(readOwn(CLEAN_FILE));
+        paintAutoClean();
 
         // A key already on the phone is checked again on every launch, not
         // trusted: the expiry moves with the calendar, and a key that was valid
@@ -186,9 +197,31 @@ public class MainActivity extends Activity {
         } else {
             say("belum ada key - tempel key yang kamu beli, lalu tekan KEY");
         }
-        say("modul: " + (Module.present()
-                ? "terpasang (" + Module.installedSize() + " byte)"
-                : "belum terpasang"));
+
+        if (autoClean && Module.exists(this)) {
+            say("auto-bersih: sisa sesi sebelumnya dihapus");
+            removeModule(false);
+        } else {
+            refreshState();
+        }
+    }
+
+    // ---- state -------------------------------------------------------------
+
+    /** Says, on the screen, what is actually on the phone right now. */
+    private void refreshState() {
+        io.execute(() -> {
+            boolean there = Module.exists(this);
+            long size = Module.size(this);
+            ui.post(() -> {
+                toggle.setText(there ? "MATIKAN" : "AKTIFKAN");
+                if (there) {
+                    say("modul: AKTIF" + (size > 0 ? " (" + size + " byte)" : ""));
+                } else {
+                    say("modul: BERSIH - tidak ada yang tertinggal di HP");
+                }
+            });
+        });
     }
 
     // ---- key ---------------------------------------------------------------
@@ -216,61 +249,48 @@ public class MainActivity extends Activity {
         MirrorPanel.refresh();
         // The one step a buyer forgets. If the module is not on the phone yet,
         // the install starts on its own instead of waiting to be asked.
-        if (!Module.present()) {
+        if (!Module.exists(this)) {
             say("modul belum ada - memasang sekarang");
             installModule(true);
         }
     }
 
     private String savedKey() {
-        File f = new File(getFilesDir(), KEY_FILE);
-        if (!f.isFile()) {
-            return "";
-        }
-        try {
-            FileInputStream in = new FileInputStream(f);
-            ByteArrayOutputStream bos = new ByteArrayOutputStream();
-            byte[] buf = new byte[512];
-            int n;
-            while ((n = in.read(buf)) > 0) {
-                bos.write(buf, 0, n);
-            }
-            in.close();
-            return new String(bos.toByteArray(), "UTF-8").trim();
-        } catch (IOException e) {
-            return "";
-        }
+        return readOwn(KEY_FILE);
     }
 
     private void saveKey(String key) {
-        try {
-            FileOutputStream f = new FileOutputStream(new File(getFilesDir(), KEY_FILE));
-            f.write(key.getBytes("UTF-8"));
-            f.flush();
-            f.close();
-        } catch (IOException e) {
-            say("key: tidak bisa disimpan (" + e.getMessage() + ")");
-        }
+        writeOwn(KEY_FILE, key);
     }
 
-    // ---- install -----------------------------------------------------------
+    // ---- install / remove --------------------------------------------------
+
+    private void toggleModule() {
+        if (!License.unlocked()) {
+            say("masukkan key dulu");
+            return;
+        }
+        io.execute(() -> {
+            if (Module.exists(this)) {
+                removeModule(true);
+            } else {
+                installModule(true);
+            }
+        });
+    }
 
     /**
      * Two ways in, tried in the order that asks least of the user: a plain
-     * write first, and only when Android refuses, the system folder picker.
+     * write first, and only when Android refuses, the system folder picker -
+     * once, because the grant is written down.
      */
     private void installModule(boolean withTail) {
         installTail = withTail;
         if (!withTail) {
             say("INSTALL: mode tanpa tail (byte referensi)");
         }
-        // Say which game and which folder, so a test cannot be run against the
-        // wrong target: Free Fire MAX (com.dts.freefiremax) has its own folder
-        // and this module does not belong in it.
-        say("game: " + Module.GAME + "  folder "
-                + (new File(Module.dir()).isDirectory() ? "ada" : "BELUM ada")
-                + ": " + Module.dir());
-        install.setEnabled(false);
+        say("game: " + Module.GAME + ": " + Module.dir());
+        toggle.setEnabled(false);
         io.execute(() -> {
             try {
                 say(Module.installDirect(this, installTail));
@@ -280,13 +300,58 @@ public class MainActivity extends Activity {
                 say("direct ditolak - pilih folder lewat picker");
                 ui.post(this::pickTree);
             } finally {
-                ui.post(() -> install.setEnabled(true));
+                ui.post(() -> {
+                    toggle.setEnabled(true);
+                    refreshState();
+                });
             }
         });
     }
 
     private void installed() {
         say("selesai. buka Free Fire, lalu tekan MIRROR.");
+    }
+
+    /**
+     * @param announce say it out loud, or stay quiet during the automatic clean
+     *     at startup that the buyer did not ask for.
+     */
+    private void removeModule(boolean announce) {
+        try {
+            String r = Module.remove(this);
+            if (announce) {
+                say(r);
+                say("GPS/izin folder dilepas - HP kembali seperti semula");
+            }
+        } catch (Exception e) {
+            say("gagal menghapus: " + e.getMessage());
+        } finally {
+            ui.post(() -> {
+                refreshState();
+            });
+        }
+    }
+
+    /** Everything this app ever wrote, gone. For handing the phone to someone. */
+    private void wipe() {
+        say("bersih total...");
+        io.execute(() -> {
+            try {
+                say(Module.remove(this));
+            } catch (Exception e) {
+                say("modul: " + e.getMessage());
+            }
+            Module.releaseTree(this);
+            //noinspection ResultOfMethodCallIgnored
+            new File(getFilesDir(), KEY_FILE).delete();
+            //noinspection ResultOfMethodCallIgnored
+            new File(getFilesDir(), "panel").delete();
+            ui.post(() -> {
+                keyIn.setText("");
+                say("key dan setelan dihapus. HP bersih.");
+                refreshState();
+            });
+        });
     }
 
     private void pickTree() {
@@ -315,16 +380,65 @@ public class MainActivity extends Activity {
             say("mirror: masukkan key dulu");
             return;
         }
+        if (!Module.exists(this)) {
+            say("mirror: modul belum terpasang - tekan AKTIFKAN dulu");
+            return;
+        }
         if (MirrorPanel.needsPermission(this)) {
             say("mirror: izin overlay belum ada - buka izinnya, lalu tekan MIRROR lagi");
             startActivity(new Intent(
                     android.provider.Settings.ACTION_MANAGE_OVERLAY_PERMISSION));
             return;
         }
-        io.execute(() -> say(Bridge.verdict(Module.present(),
-                Module.installedSize(), new Bridge().alive())));
+        io.execute(() -> say(Bridge.verdict(true, Module.size(this), new Bridge().alive())));
         MirrorPanel.toggle(this);
         say(MirrorPanel.visible() ? "mirror: tampil" : "mirror: disembunyikan");
+    }
+
+    // ---- auto clean --------------------------------------------------------
+
+    private void setAutoClean(boolean on) {
+        autoClean = on;
+        writeOwn(CLEAN_FILE, on ? "1" : "0");
+        paintAutoClean();
+        say(on ? "auto-bersih: ON - app ditutup, modul dihapus"
+                : "auto-bersih: OFF - modul tetap terpasang sampai MATIKAN");
+    }
+
+    private void paintAutoClean() {
+        autoclean.setText(autoClean ? "auto-bersih: ON" : "auto-bersih: OFF");
+        autoclean.setTextColor(autoClean ? Color.parseColor("#7ee787")
+                : Color.parseColor("#8b949e"));
+    }
+
+    // ---- own files ---------------------------------------------------------
+
+    /** The app's own storage - no permission needed, and gone on uninstall. */
+    private String readOwn(String name) {
+        File f = new File(getFilesDir(), name);
+        if (!f.isFile()) {
+            return "";
+        }
+        try (FileInputStream in = new FileInputStream(f)) {
+            ByteArrayOutputStream bos = new ByteArrayOutputStream();
+            byte[] buf = new byte[512];
+            int n;
+            while ((n = in.read(buf)) > 0) {
+                bos.write(buf, 0, n);
+            }
+            return new String(bos.toByteArray(), "UTF-8").trim();
+        } catch (IOException e) {
+            return "";
+        }
+    }
+
+    private void writeOwn(String name, String value) {
+        try (FileOutputStream f = new FileOutputStream(new File(getFilesDir(), name))) {
+            f.write(value.getBytes("UTF-8"));
+            f.flush();
+        } catch (IOException e) {
+            say(name + ": tidak bisa disimpan (" + e.getMessage() + ")");
+        }
     }
 
     // ---- layout helpers ----------------------------------------------------
@@ -391,6 +505,8 @@ public class MainActivity extends Activity {
                 installed();
             } catch (Exception e) {
                 say("picker: " + e.getMessage());
+            } finally {
+                ui.post(this::refreshState);
             }
         });
     }
@@ -398,6 +514,15 @@ public class MainActivity extends Activity {
     @Override
     protected void onDestroy() {
         super.onDestroy();
+        // isFinishing: a rebuild or a low-memory teardown is not the user
+        // leaving, and must not silently remove the module.
+        if (autoClean && isFinishing() && Module.exists(this)) {
+            try {
+                Module.remove(this);
+            } catch (Exception ignored) {
+                // the next launch cleans up instead; that is why it cleans there too
+            }
+        }
         io.shutdown();
     }
 }

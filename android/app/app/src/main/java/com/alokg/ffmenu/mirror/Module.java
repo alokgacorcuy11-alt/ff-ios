@@ -2,6 +2,7 @@ package com.alokg.ffmenu.mirror;
 
 import android.content.ContentResolver;
 import android.content.Context;
+import android.content.Intent;
 import android.net.Uri;
 import android.os.Environment;
 import android.provider.DocumentsContract;
@@ -58,6 +59,8 @@ public final class Module {
     public static final String GAME = "com.dts.freefireth";
     public static final String FILE = "Assembly-CSharp-patch.bytes";
     private static final String STAGING = ".ffmenu.tmp";
+    /** Where the picked folder grant is remembered between launches. */
+    private static final String TREE_FILE = "tree";
     /** The document id the picker has to return; also the initial folder shown. */
     public static final String TREE_DOC = "primary:Android/data/" + GAME + "/files";
     private static final String CONTAINER = "container.bin";
@@ -80,6 +83,44 @@ public final class Module {
     public static long installedSize() {
         File f = new File(dir(), FILE);
         return f.isFile() ? f.length() : -1;
+    }
+
+    // ---- the folder grant, remembered ---------------------------------------
+
+    /**
+     * The tree the buyer picked once, so it never has to be picked again.
+     *
+     * <p>Android 11 closed {@code Android/data} to ordinary writes and the
+     * system picker is the only door. That would be a tap on every install and
+     * another on every removal - which is exactly the "ribet" the buyer
+     * complains about. The picker hands out a <i>persistable</i> grant, so it
+     * is written down here once and reused by both.
+     */
+    public static void rememberTree(Context ctx, Uri tree) {
+        writeText(new File(ctx.getFilesDir(), TREE_FILE), tree.toString());
+    }
+
+    /** The remembered grant, or null when the picker has never been used. */
+    public static Uri rememberedTree(Context ctx) {
+        String s = readText(new File(ctx.getFilesDir(), TREE_FILE));
+        return s.isEmpty() ? null : Uri.parse(s);
+    }
+
+    /** Drops the record and hands the grant back to the system. */
+    public static void releaseTree(Context ctx) {
+        Uri tree = rememberedTree(ctx);
+        //noinspection ResultOfMethodCallIgnored
+        new File(ctx.getFilesDir(), TREE_FILE).delete();
+        if (tree == null) {
+            return;
+        }
+        try {
+            ctx.getContentResolver().releasePersistableUriPermission(tree,
+                    Intent.FLAG_GRANT_READ_URI_PERMISSION
+                            | Intent.FLAG_GRANT_WRITE_URI_PERMISSION);
+        } catch (Exception ignored) {
+            // already gone - not a failure worth reporting
+        }
     }
 
     // ---- payload -----------------------------------------------------------
@@ -235,20 +276,204 @@ public final class Module {
             }
             throw new IOException("File yang ditulis tidak sesuai dengan aslinya");
         }
+        // Written down so that MIRROR can report the truth about it, and so
+        // that turning it off later needs no second trip through the picker.
+        rememberTree(ctx, tree);
         return "Modul terpasang (" + bytes.length + " byte"
                 + (withTail ? "" : ", mode tanpa tail") + "). Tutup game, lalu buka lagi.";
     }
 
+    // ---- is it there? ------------------------------------------------------
+
+    /**
+     * Whether the module file is in the folder - asked the way that still
+     * works on Android 11 and later.
+     *
+     * <p>A plain {@code File} check is a lie there: {@code Android/data} of
+     * another package is closed to path-based access, so an installed module
+     * and a missing one look exactly the same. If a folder grant has ever been
+     * given, this asks through it instead, which is an answer rather than a
+     * guess. Only when there is no grant does it fall back to the path, which
+     * is the correct answer on Android 10 and below.
+     */
+    public static boolean exists(Context ctx) {
+        Uri tree = rememberedTree(ctx);
+        if (tree != null) {
+            try {
+                InputStream in = ctx.getContentResolver().openInputStream(docUri(tree));
+                if (in != null) {
+                    in.close();
+                    return true;
+                }
+            } catch (Exception ignored) {
+                return false;
+            }
+        }
+        return new File(dir(), FILE).isFile();
+    }
+
+    /** The size of the installed module, or -1 when it cannot be read. */
+    public static long size(Context ctx) {
+        Uri tree = rememberedTree(ctx);
+        if (tree != null) {
+            try (android.database.Cursor c = ctx.getContentResolver().query(docUri(tree),
+                    new String[]{DocumentsContract.Document.COLUMN_SIZE},
+                    null, null, null)) {
+                if (c != null && c.moveToFirst() && !c.isNull(0)) {
+                    return c.getLong(0);
+                }
+            } catch (Exception ignored) {
+                // fall through to the path
+            }
+        }
+        File f = new File(dir(), FILE);
+        return f.isFile() ? f.length() : -1;
+    }
+
+    private static Uri docUri(Uri tree) {
+        String treeId = DocumentsContract.getTreeDocumentId(tree);
+        return DocumentsContract.buildDocumentUriUsingTree(tree, treeId + "/" + FILE);
+    }
+
+    // ---- removal: the other half of "install" ------------------------------
+
+    /**
+     * Takes the module back out, and gives the folder grant back with it.
+     *
+     * <p>This is what "turn it off and the phone is as it was" means in
+     * practice: one file deleted, verified deleted, and the one permission the
+     * app had been holding released. Nothing else was ever changed - there is
+     * no install step, no system setting, no background process - so nothing
+     * else has to be undone.
+     *
+     * <p>Tried through the remembered grant first, because that is the door
+     * that is still open on Android 11 and later, and it needs no taps. The
+     * path is the fallback for older Androids.
+     */
+    public static String remove(Context ctx) throws IOException {
+        IOException viaTree = null;
+        Uri tree = rememberedTree(ctx);
+        if (tree != null) {
+            try {
+                String r = removeTree(ctx, tree);
+                releaseTree(ctx);
+                return r;
+            } catch (IOException e) {
+                viaTree = e;
+            }
+        }
+        try {
+            String r = removeDirect(ctx);
+            releaseTree(ctx);
+            return r;
+        } catch (IOException e) {
+            if (viaTree != null) {
+                throw new IOException(e.getMessage()
+                        + " (lewat folder juga gagal: " + viaTree.getMessage() + ")");
+            }
+            throw e;
+        }
+    }
+
+    /** Deletes straight through the path. Throws when Android refuses. */
+    public static String removeDirect(Context ctx) throws IOException {
+        File target = new File(dir(), FILE);
+        File staging = new File(dir(), STAGING);
+        //noinspection ResultOfMethodCallIgnored
+        staging.delete();
+        if (!target.exists()) {
+            return "tidak ada modul - HP sudah bersih";
+        }
+        if (!target.delete()) {
+            throw new IOException("file modul tidak bisa dihapus");
+        }
+        if (target.exists()) {
+            throw new IOException("file masih ada setelah dihapus");
+        }
+        return "modul dihapus (" + FILE + ")";
+    }
+
+    /**
+     * Deletes through the remembered folder grant. A delete that reports
+     * success but leaves the file is not a delete, so the absence is confirmed
+     * by re-reading it.
+     */
+    public static String removeTree(Context ctx, Uri tree) throws IOException {
+        String treeId;
+        try {
+            treeId = DocumentsContract.getTreeDocumentId(tree);
+        } catch (Exception e) {
+            throw new IOException("Izin folder tidak valid");
+        }
+        if (!TREE_DOC.equals(treeId)) {
+            throw new IOException("Izin folder bukan folder game");
+        }
+        ContentResolver r = ctx.getContentResolver();
+        Uri doc = DocumentsContract.buildDocumentUriUsingTree(tree, treeId + "/" + FILE);
+        boolean there;
+        try {
+            InputStream in = r.openInputStream(doc);
+            there = in != null;
+            if (in != null) {
+                in.close();
+            }
+        } catch (Exception e) {
+            there = false;
+        }
+        if (!there) {
+            return "tidak ada modul - HP sudah bersih";
+        }
+        boolean gone;
+        try {
+            gone = DocumentsContract.deleteDocument(r, doc);
+        } catch (Exception e) {
+            throw new IOException("tidak bisa menghapus di folder itu: " + e.getMessage());
+        }
+        if (!gone) {
+            throw new IOException("folder menolak menghapus file modul");
+        }
+        try {
+            InputStream in = r.openInputStream(doc);
+            if (in != null) {
+                in.close();
+                throw new IOException("file masih ada setelah dihapus");
+            }
+        } catch (java.io.FileNotFoundException expected) {
+            // what a successful delete looks like
+        }
+        return "modul dihapus (" + FILE + ")";
+    }
+
     // ---- helpers -----------------------------------------------------------
 
-    private static void writeFile(File f, byte[] data) throws IOException {
-        FileOutputStream out = new FileOutputStream(f);
+    private static void writeFile(File f, byte[] data) throws IOException {        FileOutputStream out = new FileOutputStream(f);
         try {
             out.write(data);
             out.flush();
             out.getFD().sync();
         } finally {
             out.close();
+        }
+    }
+
+    /** A small text file in the app's own storage. Never throws. */
+    static void writeText(File f, String s) {
+        try (FileOutputStream out = new FileOutputStream(f)) {
+            out.write(s.getBytes("UTF-8"));
+            out.flush();
+        } catch (IOException ignored) {
+            // a lost record means one extra trip through the picker, not a failure
+        }
+    }
+
+    static String readText(File f) {
+        if (!f.isFile()) {
+            return "";
+        }
+        try (FileInputStream in = new FileInputStream(f)) {
+            return new String(readAll(in), "UTF-8").trim();
+        } catch (IOException e) {
+            return "";
         }
     }
 

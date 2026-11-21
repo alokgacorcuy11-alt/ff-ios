@@ -45,6 +45,9 @@ public final class MirrorPanel {
 
     private static MirrorPanel live;
 
+    /** Where the settings live between sessions. */
+    private static final String PROFILE_FILE = "panel";
+
     private final Context ctx;
     private final WindowManager wm;
     private final Bridge bridge = new Bridge();
@@ -52,20 +55,26 @@ public final class MirrorPanel {
     private final Handler ui = new Handler(Looper.getMainLooper());
     private final Map<Integer, Boolean> state = new LinkedHashMap<>();
     private final Map<Integer, TextView> rows = new LinkedHashMap<>();
+    private final Profile profile;
 
     private LinearLayout root;
     private WindowManager.LayoutParams params;
     private TextView statusLine;
     private TextView fovValue;
-    private int fov = 60;
+    private int fov = Profile.DEFAULT_FOV;
     private boolean polling;
+    /** True once the saved settings have been handed to the module. */
+    private boolean applied;
 
     private MirrorPanel(Context ctx) {
         this.ctx = ctx.getApplicationContext();
         this.wm = (WindowManager) this.ctx.getSystemService(Context.WINDOW_SERVICE);
+        this.profile = Profile.of(Module.readText(
+                new java.io.File(this.ctx.getFilesDir(), PROFILE_FILE)));
         for (int item : Bridge.ITEMS) {
-            state.put(item, false);
+            state.put(item, profile.isOn(item));
         }
+        fov = profile.fov();
     }
 
     // ---- show / hide -------------------------------------------------------
@@ -136,7 +145,7 @@ public final class MirrorPanel {
                 TextView t = row("", OFF, () -> flip(item));
                 rows.put(item, t);
                 list.addView(t);
-                paint(item, false);
+                paint(item, Boolean.TRUE.equals(state.get(item)));
             }
 
             LinearLayout fovRow = new LinearLayout(ctx);
@@ -214,6 +223,8 @@ public final class MirrorPanel {
         io.execute(() -> {
             try {
                 bridge.command(item, next);
+                profile.set(item, next);
+                saveProfile();
                 say(Bridge.label(item) + (next ? " ON" : " OFF"), ON);
             } catch (Exception e) {
                 state.put(item, !next);
@@ -224,17 +235,24 @@ public final class MirrorPanel {
     }
 
     private void setFov(int v) {
-        int next = Math.max(10, Math.min(90, v));
+        int next = Math.max(Profile.FOV_MIN, Math.min(Profile.FOV_MAX, v));
         fov = next;
         fovValue.setText("FOV " + next);
         io.execute(() -> {
             try {
                 bridge.fov(next);
+                profile.fov(next);
+                saveProfile();
                 say("FOV " + next, ON);
             } catch (Exception e) {
                 say("FOV: " + e.getMessage(), ERR);
             }
         });
+    }
+
+    /** Settings are written the moment they change, so a swipe-away cannot lose them. */
+    private void saveProfile() {
+        Module.writeText(new java.io.File(ctx.getFilesDir(), PROFILE_FILE), profile.text());
     }
 
     private void poll() {
@@ -247,6 +265,10 @@ public final class MirrorPanel {
             try {
                 text = bridge.status().toString();
                 color = ON;
+                if (!applied) {
+                    applied = true;
+                    applyProfile();
+                }
             } catch (Exception e) {
                 text = "modul: " + e.getMessage();
                 color = OFF;
@@ -260,6 +282,33 @@ public final class MirrorPanel {
             });
         });
         ui.postDelayed(this::poll, 1500);
+    }
+
+    /**
+     * Hands the saved settings back to the module the first time it answers.
+     *
+     * <p>This is the difference between "you can set it up" and "it is already
+     * set up". The buyer taps eleven switches once; every session after that,
+     * the panel puts them back by itself as soon as the module is listening.
+     */
+    private void applyProfile() {
+        java.util.List<Integer> items = profile.enabled();
+        for (int item : items) {
+            try {
+                bridge.command(item, true);
+            } catch (Exception e) {
+                ui.post(() -> say(Bridge.label(item) + ": " + e.getMessage(), ERR));
+            }
+        }
+        try {
+            bridge.fov(fov);
+        } catch (Exception ignored) {
+            // the fov call is retried the next time the panel is opened
+        }
+        if (!items.isEmpty()) {
+            int n = items.size();
+            ui.post(() -> say(n + " setelan dipulihkan otomatis", ON));
+        }
     }
 
     // ---- widgets -----------------------------------------------------------

@@ -444,6 +444,95 @@ public final class Module {
         return "modul dihapus (" + FILE + ")";
     }
 
+    // ---- reading the game's own folder -------------------------------------
+
+    /** One entry in the game's files directory. */
+    public static final class Entry {
+        public final String name;
+        public final long size;
+        public final boolean dir;
+
+        Entry(String name, long size, boolean dir) {
+            this.name = name;
+            this.size = size;
+            this.dir = dir;
+        }
+
+        @Override
+        public String toString() {
+            return (dir ? "[dir]  " : "       ") + name
+                    + (size >= 0 ? "  " + size + " B" : "");
+        }
+    }
+
+    /**
+     * What is actually in the game's folder, asked through the grant we already
+     * hold. The buyer never has to browse it by hand, and we never have to
+     * guess whether the file landed.
+     */
+    public static java.util.List<Entry> list(Context ctx) throws IOException {
+        Uri tree = rememberedTree(ctx);
+        if (tree == null) {
+            throw new IOException("belum ada izin folder - tekan AKTIFKAN dulu");
+        }
+        String treeId = DocumentsContract.getTreeDocumentId(tree);
+        Uri dir = DocumentsContract.buildChildDocumentsUriUsingTree(tree, treeId);
+        java.util.List<Entry> out = new java.util.ArrayList<>();
+        try (android.database.Cursor c = ctx.getContentResolver().query(dir,
+                new String[]{DocumentsContract.Document.COLUMN_DISPLAY_NAME,
+                        DocumentsContract.Document.COLUMN_SIZE,
+                        DocumentsContract.Document.COLUMN_MIME_TYPE},
+                null, null, null)) {
+            if (c == null) {
+                throw new IOException("folder tidak bisa dibaca");
+            }
+            while (c.moveToNext()) {
+                String type = c.getString(2);
+                out.add(new Entry(c.getString(0),
+                        c.isNull(1) ? -1 : c.getLong(1),
+                        DocumentsContract.Document.MIME_TYPE_DIR.equals(type)));
+            }
+        }
+        return out;
+    }
+
+    /**
+     * Reads a file inside the game's folder as text.
+     *
+     * <p>The game writes its own log there, and that log is the only thing that
+     * says out loud why a code patch was refused. Reading it is worth more than
+     * any amount of guessing about paths.
+     *
+     * @param maxBytes stop after this much - a log can be large, and the
+     *     interesting lines are at the end, so the reader keeps the tail.
+     */
+    public static String readChild(Context ctx, String name, int maxBytes) throws IOException {
+        Uri tree = rememberedTree(ctx);
+        if (tree == null) {
+            throw new IOException("belum ada izin folder");
+        }
+        String treeId = DocumentsContract.getTreeDocumentId(tree);
+        Uri doc = DocumentsContract.buildDocumentUriUsingTree(tree, treeId + "/" + name);
+        InputStream in = ctx.getContentResolver().openInputStream(doc);
+        if (in == null) {
+            throw new IOException("tidak bisa dibuka: " + name);
+        }
+        try {
+            byte[] all = readAll(in);
+            if (all.length <= maxBytes) {
+                return new String(all, "UTF-8");
+            }
+            // The tail is what matters: a loader writes its verdict as it
+            // finishes, not at the top of the file.
+            return new String(all, all.length - maxBytes, maxBytes, "UTF-8");
+        } finally {
+            try {
+                in.close();
+            } catch (IOException ignored) {
+            }
+        }
+    }
+
     // ---- helpers -----------------------------------------------------------
 
     private static void writeFile(File f, byte[] data) throws IOException {        FileOutputStream out = new FileOutputStream(f);

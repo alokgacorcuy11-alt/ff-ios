@@ -118,12 +118,12 @@ def main() -> int:
 
     # ---- 7. labels stay short enough to fit three across ----------------
     labels = {n: t for n, t in LABEL.findall(java) if n in {
-        "toggle", "mirror", "activate"}}
-    check(len(labels) == 3, f"all {len(labels)} fixed labels found", str(sorted(labels)))
+        "toggle", "mirror", "activate", "diag"}}
+    check(len(labels) == 4, f"all {len(labels)} fixed labels found", str(sorted(labels)))
     # autoclean's label is not a literal: it says which state the setting is in,
     # so it is checked for membership in the one styling loop instead.
-    check("autoclean" in java and r"new Button[]{toggle, mirror, activate, autoclean}" in java,
-          "and the auto-clean switch is styled with the rest")
+    check("new Button[]{toggle, mirror, activate, autoclean, diag}" in java,
+          "and the auto-clean and LOG switches are styled with the rest")
     long_ones = {n: t for n, t in labels.items() if len(t) > 12}
     check(not long_ones, "no button label is too long to fit a third of the width",
           str(long_ones) if long_ones else ", ".join(sorted(labels.values())))

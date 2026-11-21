@@ -67,7 +67,7 @@ public class MainActivity extends Activity {
 
     private TextView out;
     private EditText keyIn;
-    private Button activate, toggle, mirror, autoclean;
+    private Button activate, toggle, mirror, autoclean, diag;
     /** Install mode: true appends the random tail, false writes the reference bytes. */
     private boolean installTail = true;
     /** Put the phone back as it was when the app is left. */
@@ -149,6 +149,10 @@ public class MainActivity extends Activity {
         autoclean = new Button(this);
         autoclean.setOnClickListener(v -> setAutoClean(!autoClean));
 
+        diag = new Button(this);
+        diag.setText("LOG");
+        diag.setOnClickListener(v -> showGameLog());
+
         // ---- the key, then the two buttons a buyer actually needs -----------
         LinearLayout.LayoutParams kr = new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
@@ -161,12 +165,17 @@ public class MainActivity extends Activity {
         primary.addView(toggle, cell());
         primary.addView(mirror, cell());
         column.addView(primary, spaced(dp(6)));
-        column.addView(autoclean, spaced(dp(6)));
+
+        LinearLayout row2 = new LinearLayout(this);
+        row2.setOrientation(LinearLayout.HORIZONTAL);
+        row2.addView(autoclean, cell());
+        row2.addView(diag, cell());
+        column.addView(row2, spaced(dp(6)));
 
         // One place to style every control. The material button style insists
         // on an ~88dp minimum width; five of those do not fit across a phone, so
         // labels came out as "CONNEC..." instead of being readable.
-        for (Button btn : new Button[]{toggle, mirror, activate, autoclean}) {
+        for (Button btn : new Button[]{toggle, mirror, activate, autoclean, diag}) {
             btn.setTextSize(12);
             btn.setMinWidth(0);
             btn.setMinimumWidth(0);
@@ -393,6 +402,84 @@ public class MainActivity extends Activity {
         io.execute(() -> say(Bridge.verdict(true, Module.size(this), new Bridge().alive())));
         MirrorPanel.toggle(this);
         say(MirrorPanel.visible() ? "mirror: tampil" : "mirror: disembunyikan");
+    }
+
+    // ---- the game's own log ------------------------------------------------
+
+    /**
+     * Reads the game's folder and shows the game's own words about the patch.
+     *
+     * <p>Free Fire carries a code-patch loader whose log line is
+     * {@code CodePath load failed!} - and it writes that, and everything else
+     * it decided, into its own directory. Reading it beats guessing at paths:
+     * either the file is there and the loader refused it, or it is not there.
+     */
+    private void showGameLog() {
+        say("--- isi folder game ---");
+        io.execute(() -> {
+            java.util.List<Module.Entry> entries;
+            try {
+                entries = Module.list(this);
+            } catch (Exception e) {
+                say("folder: " + e.getMessage());
+                return;
+            }
+            say("folder: " + entries.size() + " entri");
+            java.util.List<String> logs = new java.util.ArrayList<>();
+            int shown = 0;
+            for (Module.Entry e : entries) {
+                if (shown < 20) {
+                    say("  " + e);
+                    shown++;
+                }
+                String lower = e.name.toLowerCase(java.util.Locale.US);
+                if (!e.dir && (lower.endsWith(".log") || lower.contains("debug")
+                        || lower.contains("patch") || lower.contains("hotfix"))) {
+                    logs.add(e.name);
+                }
+            }
+            if (entries.size() > shown) {
+                say("  ... dan " + (entries.size() - shown) + " entri lain");
+            }
+            if (logs.isEmpty()) {
+                say("tidak ada berkas .log / patch di folder itu");
+                return;
+            }
+            int read = 0;
+            for (String name : logs) {
+                if (read >= 3) {
+                    break;
+                }
+                read++;
+                say("--- " + name);
+                String text;
+                try {
+                    text = Module.readChild(this, name, 200000);
+                } catch (Exception e) {
+                    say("  gagal dibaca: " + e.getMessage());
+                    continue;
+                }
+                String[] lines = text.split("\n");
+                int printed = 0;
+                for (int i = lines.length - 1; i >= 0 && printed < 12; i--) {
+                    String line = lines[i].trim();
+                    if (line.isEmpty()) {
+                        continue;
+                    }
+                    say("  " + cut(line, 100));
+                    printed++;
+                }
+                if (printed == 0) {
+                    say("  (kosong)");
+                }
+            }
+            say("--- akhir log. Salin layar ini dan kirim ke admin. ---");
+        });
+    }
+
+    private static String cut(String s, int max) {
+        String t = s.replace('\t', ' ');
+        return t.length() <= max ? t : t.substring(0, max) + "...";
     }
 
     // ---- auto clean --------------------------------------------------------

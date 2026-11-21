@@ -90,8 +90,10 @@ public class ContentResolver {
 package android.database;
 public interface Cursor extends java.io.Closeable {
     boolean moveToFirst();
+    boolean moveToNext();
     boolean isNull(int columnIndex);
     long getLong(int columnIndex);
+    String getString(int columnIndex);
     int getColumnIndex(String name);
 }
 """,
@@ -117,6 +119,8 @@ public final class DocumentsContract {
         return null;
     }
     public static android.net.Uri buildDocumentUri(String authority, String id) { return null; }
+    public static android.net.Uri buildChildDocumentsUriUsingTree(android.net.Uri tree,
+            String id) { return null; }
     public static android.net.Uri createDocument(android.content.ContentResolver r,
             android.net.Uri parent, String mime, String name) { return null; }
     public static boolean deleteDocument(android.content.ContentResolver r, android.net.Uri d) {
@@ -126,6 +130,8 @@ public final class DocumentsContract {
         public static final String COLUMN_DOCUMENT_ID = "document_id";
         public static final String COLUMN_SIZE = "_size";
         public static final String COLUMN_DISPLAY_NAME = "_display_name";
+        public static final String COLUMN_MIME_TYPE = "mime_type";
+        public static final String MIME_TYPE_DIR = "vnd.android.document/directory";
     }
 }
 """,

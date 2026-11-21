@@ -30,7 +30,7 @@ android {
         // versionCode is allowed but pointless, and "aplikasi tidak terpasang"
         // is the message Android gives when it is not sure what it is
         // replacing. A number that always goes up removes the question.
-        versionCode = 2
+        versionCode = 3
         versionName = "1.0"
         resValue("string", "app_name", appLabel)
     }

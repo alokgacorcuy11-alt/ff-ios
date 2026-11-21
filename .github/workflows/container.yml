@@ -1,19 +1,21 @@
 name: container
 
-# Builds the base for the no-root container product and publishes the APK.
+# Builds the base for the no-root container product and publishes what came out.
 #
 # Why a separate workflow: the container is a foreign codebase (Apache-2.0,
-# BlackBox lineage) that has to be built with its own Gradle setup. Keeping it
-# out of the product's workflow means a broken container build cannot block a
-# product release, and the pinned commit is recorded so a rebuild is the same
-# bytes of source.
+# BlackBox lineage) with its own Gradle setup. Keeping it out of the product's
+# workflow means a broken container build cannot block a product release, and
+# the pinned commit is recorded so a rebuild compiles the same source.
 #
-# Output: the `container` branch, force-pushed, with the debug APK and the
-# commit it came from.
+# Why it publishes build.log even when the build fails: the Actions log for a
+# job is only readable by a repository admin, and guessing at a foreign
+# project's build error is how a day disappears. The log goes out with the
+# artefact, so a failure is a file to read rather than a wall to stare at.
+#
+# Output: the `container` branch, force-pushed, with the debug APK (when the
+# build gets that far), build.log, and the commit it came from.
 
 on:
-  # A push that touches this file rebuilds it, so a first run does not need a
-  # trip through the Actions tab.
   push:
     paths:
       - ".github/workflows/container.yml"
@@ -40,6 +42,8 @@ jobs:
           git -C base rev-parse HEAD | tee BASE_COMMIT.txt
           # the two numbers that decide what this thing can do at all
           grep -E "targetSdkVersion|minSdk" base/build.gradle | tee BASE_SDK.txt
+          echo "sdk.dir=$ANDROID_SDK_ROOT" > base/local.properties || true
+          echo "ANDROID_SDK_ROOT=$ANDROID_SDK_ROOT"
 
       - uses: gradle/actions/setup-gradle@v3
         with:
@@ -47,16 +51,18 @@ jobs:
 
       - name: build debug apk
         run: |
-          set -euo pipefail
           cd base
-          gradle :app:assembleDebug --no-daemon --stacktrace
+          # No `set -e`: the whole point is to capture the failure and publish it.
+          gradle :app:assembleDebug --no-daemon --stacktrace --warning-mode all \
+            > ../build.log 2>&1 || echo "BUILD FAILED (exit $?)" | tee -a ../build.log
+          tail -n 40 ../build.log || true
 
       - name: publish
         run: |
           set -euo pipefail
           mkdir -p dist
-          find base -path '*outputs/apk/debug/*.apk' -exec cp {} dist/ \;
-          test -n "$(ls -A dist)"
+          find base -path '*outputs/apk/debug/*.apk' -exec cp {} dist/ \; 2>/dev/null || true
+          cp build.log dist/ 2>/dev/null || echo "no log" > dist/build.log
           cp BASE_COMMIT.txt BASE_SDK.txt dist/
           ls -l dist
           cd dist

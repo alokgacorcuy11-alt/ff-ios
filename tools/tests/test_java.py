@@ -31,6 +31,8 @@ SOURCES = [
     "com/alokg/ffmenu/License.java",
     "com/alokg/ffmenu/LanConfig.java",
     "com/alokg/ffmenu/MainActivity.java",
+    "com/alokg/ffmenu/Vision.java",
+    "com/alokg/ffmenu/VisionService.java",
     "com/alokg/ffmenu/feed/FeedFormat.java",
     "com/alokg/ffmenu/feed/FeedServer.java",
     "com/alokg/ffmenu/feed/FeedChannel.java",
@@ -38,7 +40,10 @@ SOURCES = [
     "com/alokg/ffmenu/mirror/Module.java",
     "com/alokg/ffmenu/mirror/MirrorPanel.java",
     "com/alokg/ffmenu/mirror/Profile.java",
+    "com/alokg/ffmenu/vision/Capture.java",
+    "com/alokg/ffmenu/vision/BoxOverlay.java",
     "com/alokg/ffmenu/vision/Detector.java",
+    "com/alokg/ffmenu/vision/Touch.java",
 ]
 
 # Every stub member below exists in the real API with the same signature. If a

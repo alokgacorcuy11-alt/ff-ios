@@ -60,6 +60,7 @@ public class MainActivity extends Activity {
     /** Whether closing the app should put the phone back as it was. */
     private static final String CLEAN_FILE = "auto-bersih";
     private static final int REQ_TREE = 0x52;
+    private static final int REQ_CAPTURE = 0x51;
 
     private final ExecutorService io = Executors.newSingleThreadExecutor();
     private final Handler ui = new Handler(Looper.getMainLooper());
@@ -67,7 +68,7 @@ public class MainActivity extends Activity {
 
     private TextView out;
     private EditText keyIn;
-    private Button activate, toggle, mirror, autoclean, diag;
+    private Button activate, toggle, mirror, autoclean, diag, esp;
     /** Install mode: true appends the random tail, false writes the reference bytes. */
     private boolean installTail = true;
     /** Put the phone back as it was when the app is left. */
@@ -146,6 +147,10 @@ public class MainActivity extends Activity {
         mirror.setText("MIRROR");
         mirror.setOnClickListener(v -> openMirror());
 
+        esp = new Button(this);
+        esp.setText("ESP");
+        esp.setOnClickListener(v -> toggleEsp());
+
         autoclean = new Button(this);
         autoclean.setOnClickListener(v -> setAutoClean(!autoClean));
 
@@ -164,6 +169,7 @@ public class MainActivity extends Activity {
         primary.setOrientation(LinearLayout.HORIZONTAL);
         primary.addView(toggle, cell());
         primary.addView(mirror, cell());
+        primary.addView(esp, cell());
         column.addView(primary, spaced(dp(6)));
 
         LinearLayout row2 = new LinearLayout(this);
@@ -175,7 +181,7 @@ public class MainActivity extends Activity {
         // One place to style every control. The material button style insists
         // on an ~88dp minimum width; five of those do not fit across a phone, so
         // labels came out as "CONNEC..." instead of being readable.
-        for (Button btn : new Button[]{toggle, mirror, activate, autoclean, diag}) {
+        for (Button btn : new Button[]{toggle, mirror, esp, activate, autoclean, diag}) {
             btn.setTextSize(12);
             btn.setMinWidth(0);
             btn.setMinimumWidth(0);
@@ -382,6 +388,44 @@ public class MainActivity extends Activity {
         }
     }
 
+    // ---- the external path: look at the screen, touch nothing --------------
+
+    /**
+     * Starts or stops the screen capture.
+     *
+     * <p>One grant from the system's own dialog, and the capture ends when the
+     * service does. Nothing here modifies the game: no file in its folder, no
+     * code in its process, nothing the game can scan. That is also why there is
+     * nothing to clean up afterwards.
+     */
+    private void toggleEsp() {
+        if (!License.unlocked()) {
+            say("masukkan key dulu");
+            return;
+        }
+        if (Vision.running()) {
+            stopService(new Intent(this, VisionService.class));
+            Vision.stop();
+            say(Vision.status());
+            return;
+        }
+        if (!android.provider.Settings.canDrawOverlays(this)) {
+            say("esp: izin overlay belum ada - buka izinnya, lalu tekan ESP lagi");
+            startActivity(new Intent(
+                    android.provider.Settings.ACTION_MANAGE_OVERLAY_PERMISSION));
+            return;
+        }
+        android.media.projection.MediaProjectionManager mpm =
+                (android.media.projection.MediaProjectionManager)
+                        getSystemService(MEDIA_PROJECTION_SERVICE);
+        if (mpm == null) {
+            say("esp: layanan rekam layar tidak ada di HP ini");
+            return;
+        }
+        say("esp: minta izin rekam layar...");
+        startActivityForResult(mpm.createScreenCaptureIntent(), REQ_CAPTURE);
+    }
+
     // ---- panel -------------------------------------------------------------
 
     private void openMirror() {
@@ -570,6 +614,23 @@ public class MainActivity extends Activity {
     @Override
     protected void onActivityResult(int request, int result, Intent data) {
         super.onActivityResult(request, result, data);
+
+        if (request == REQ_CAPTURE) {
+            if (result != RESULT_OK || data == null) {
+                say("esp: izin rekam layar ditolak");
+                return;
+            }
+            // The projection itself is not Parcelable, so what travels is the
+            // grant, and the service turns it into a projection the way this
+            // Activity would have.
+            Intent svc = new Intent(this, VisionService.class);
+            svc.putExtra(VisionService.EXTRA_RESULT_CODE, result);
+            svc.putExtra(VisionService.EXTRA_DATA, data);
+            startForegroundService(svc);
+            say("esp: " + Vision.status());
+            return;
+        }
+
         if (request != REQ_TREE) {
             return;
         }

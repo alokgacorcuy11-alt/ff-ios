@@ -2,26 +2,30 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
     <!--
-      Two permissions, and each one has a caller:
+      Four permissions, and each one has a caller:
 
-        SYSTEM_ALERT_WINDOW  the MIRROR panel is a window over the game
-        INTERNET             a loopback socket needs it; nothing leaves the phone
+        SYSTEM_ALERT_WINDOW          the panel and the boxes are windows over the game
+        INTERNET                     a loopback socket needs it; nothing leaves the phone
+        FOREGROUND_SERVICE           the screen capture has to outlive the app going
+                                     to the background, or it dies the moment the game
+                                     comes up
+        FOREGROUND_SERVICE_MEDIA_PROJECTION
+                                     the type Android 14 requires of exactly that
 
       What is deliberately absent, and why it matters at install time:
 
-        no accessibility service   the single strongest "this is malware" signal
-                                   an installer sees. The product never used it -
-                                   it belonged to a screen-capture aim path that
-                                   was research, not something a buyer could reach.
-        no media projection        same story: screen recording, declared and unused
-        no foreground service      nothing here runs in the background
+        no accessibility service   the strongest "this is malware" signal an
+                                   installer sees. It is what moving the crosshair
+                                   would need, so this build draws boxes and does
+                                   not steer; see vision/Touch.java
         no boot receiver           nothing starts itself
-        no native libraries        an ELF inside the APK is another strong signal;
-                                   the root daemon that needed one is gone
+        no native libraries        an ELF inside the APK is another strong signal
     -->
 
     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
     <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION" />
 
     <application
         android:allowBackup="false"
@@ -38,5 +42,13 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <!-- Android 14 tears a MediaProjection down when its owner leaves the
+             foreground, and the app is backgrounded the instant the game comes
+             up - so the capture has to live here. -->
+        <service
+            android:name=".VisionService"
+            android:exported="false"
+            android:foregroundServiceType="mediaProjection" />
     </application>
 </manifest>

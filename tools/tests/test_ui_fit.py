@@ -88,8 +88,9 @@ def main() -> int:
     crowded = {c: k for c, k in rows.items() if len(k) > 3}
     check(not crowded, "no horizontal row holds more than three buttons",
           str(crowded) if crowded else ", ".join(f"{c}={len(k)}" for c, k in rows.items()))
-    check(len(rows.get("primary", [])) == 2 and set(rows["primary"]) == {"toggle", "mirror"},
-          "the on/off switch and MIRROR share the first row of their own",
+    check(len(rows.get("primary", [])) == 3
+          and set(rows["primary"]) == {"toggle", "mirror", "esp"},
+          "the on/off switch, MIRROR and ESP share the first row of their own",
           str(rows.get("primary")))
 
     # ---- 4. the style floor that caused the truncation is cleared --------
@@ -103,14 +104,19 @@ def main() -> int:
     # service plus screen capture is what made Play Protect refuse the APK
     # outright. A screen that only has the three buttons a buyer uses cannot
     # drift back into declaring them.
-    for gone in ("rootTools", "toggleRootTools", "Vision", "Root.", "MemClient"):
+    for gone in ("rootTools", "toggleRootTools", "AimService", "Root.", "MemClient"):
         check(gone not in java, f"the buyer screen carries no {gone}")
     check("BIND_ACCESSIBILITY_SERVICE" not in xml and "AccessibilityService" not in xml,
           "the manifest declares no accessibility service")
-    check("MEDIA_PROJECTION" not in xml, "and no screen capture")
-    check(xml.count("<uses-permission") == 2,
-          "exactly two permissions are requested",
-          f"{xml.count('<uses-permission')}")
+    wanted = {
+        "android.permission.SYSTEM_ALERT_WINDOW",
+        "android.permission.INTERNET",
+        "android.permission.FOREGROUND_SERVICE",
+        "android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION",
+    }
+    declared = set(re.findall(r'android:name="(android\.permission\.[A-Z_]+)"', xml))
+    check(declared == wanted, "the permission set is exactly the four that have a caller",
+          str(sorted(declared ^ wanted)) if declared != wanted else str(len(declared)))
 
     # ---- 6. the keyboard resizes instead of panning ----------------------
     check('android:windowSoftInputMode="adjustResize"' in xml,
@@ -118,12 +124,12 @@ def main() -> int:
 
     # ---- 7. labels stay short enough to fit three across ----------------
     labels = {n: t for n, t in LABEL.findall(java) if n in {
-        "toggle", "mirror", "activate", "diag"}}
-    check(len(labels) == 4, f"all {len(labels)} fixed labels found", str(sorted(labels)))
+        "toggle", "mirror", "esp", "activate", "diag"}}
+    check(len(labels) == 5, f"all {len(labels)} fixed labels found", str(sorted(labels)))
     # autoclean's label is not a literal: it says which state the setting is in,
     # so it is checked for membership in the one styling loop instead.
-    check("new Button[]{toggle, mirror, activate, autoclean, diag}" in java,
-          "and the auto-clean and LOG switches are styled with the rest")
+    check("new Button[]{toggle, mirror, esp, activate, autoclean, diag}" in java,
+          "and every switch is styled in the same one place")
     long_ones = {n: t for n, t in labels.items() if len(t) > 12}
     check(not long_ones, "no button label is too long to fit a third of the width",
           str(long_ones) if long_ones else ", ".join(sorted(labels.values())))

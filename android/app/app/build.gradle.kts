@@ -1,4 +1,4 @@
-plugins {
+﻿plugins {
     id("com.android.application")
 }
 
@@ -30,7 +30,7 @@ android {
         // versionCode is allowed but pointless, and "aplikasi tidak terpasang"
         // is the message Android gives when it is not sure what it is
         // replacing. A number that always goes up removes the question.
-        versionCode = 3
+        versionCode = 4
         versionName = "1.0"
         resValue("string", "app_name", appLabel)
     }
@@ -72,7 +72,7 @@ android {
     }
 }
 
-// MainActivity has a non-ASCII label ("FF · mem bridge"); pin the encoding so
+// MainActivity has a non-ASCII label ("FF Â· mem bridge"); pin the encoding so
 // the build does not depend on the platform default.
 tasks.withType<org.gradle.api.tasks.compile.JavaCompile>().configureEach {
     options.encoding = "UTF-8"

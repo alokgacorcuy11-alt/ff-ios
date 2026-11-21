@@ -1,0 +1,65 @@
+name: container
+
+# Builds the base for the no-root container product and publishes the APK.
+#
+# Why a separate workflow: the container is a foreign codebase (Apache-2.0,
+# BlackBox lineage) that has to be built with its own Gradle setup. Keeping it
+# out of the product's workflow means a broken container build cannot block a
+# product release, and the pinned commit is recorded so a rebuild is the same
+# bytes of source.
+#
+# Output: the `container` branch, force-pushed, with the debug APK and the
+# commit it came from.
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: get the base
+        run: |
+          set -euo pipefail
+          git clone --depth 1 https://github.com/Black00Z/Blacks-BlackBox.git base
+          git -C base rev-parse HEAD | tee BASE_COMMIT.txt
+          # the two numbers that decide what this thing can do at all
+          grep -E "targetSdkVersion|minSdk" base/build.gradle | tee BASE_SDK.txt
+
+      - uses: gradle/actions/setup-gradle@v3
+        with:
+          gradle-version: "8.13"
+
+      - name: build debug apk
+        run: |
+          set -euo pipefail
+          cd base
+          gradle :app:assembleDebug --no-daemon --stacktrace
+
+      - name: publish
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          find base -path '*outputs/apk/debug/*.apk' -exec cp {} dist/ \;
+          test -n "$(ls -A dist)"
+          cp BASE_COMMIT.txt BASE_SDK.txt dist/
+          ls -l dist
+          cd dist
+          git init -q
+          git config user.name "ci"
+          git config user.email "ci@local"
+          git add -A
+          git commit -q -m "container: $(date -u +%Y%m%d-%H%M%S) ${GITHUB_SHA:0:7}"
+          git push -f "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" HEAD:container
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

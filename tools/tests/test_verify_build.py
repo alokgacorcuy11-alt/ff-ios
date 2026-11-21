@@ -86,7 +86,7 @@ def build_arsc(label: str | None) -> bytes:
 
 
 def build_apk(path: Path, package: str = PKG, arsc_label: str | None = LABEL,
-              with_memd: bool = True) -> None:
+              with_memd: bool = False) -> None:
     with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as z:
         z.writestr("AndroidManifest.xml", build_axml(package))
         if arsc_label is not False:  # False means "no resources.arsc at all"
@@ -137,11 +137,14 @@ def main() -> int:
     check("a missing resources.arsc is caught",
           any("resources.arsc is missing" in p for p in problems), str(problems))
 
-    # --- the daemon was not packaged
-    nomemd = tmp / "nomemd.apk"
-    build_apk(nomemd, with_memd=False)
-    problems, _ = vb.verify(nomemd, PKG, LABEL, check_cert=False)
-    check("a missing daemon asset is caught",
+    # --- a native binary was packaged anyway
+    #
+    # This used to be the other way round: the daemon was required. It is not
+    # shipped any more, so the gate now fails a build that carries one.
+    memd = tmp / "memd.apk"
+    build_apk(memd, with_memd=True)
+    problems, _ = vb.verify(memd, PKG, LABEL, check_cert=False)
+    check("a packaged native binary is caught",
           any("assets/memd" in p for p in problems), str(problems))
 
     # --- not an APK

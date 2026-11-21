@@ -1,8 +1,9 @@
 name: android
 
-# Builds the two artefacts and publishes them to the `build` branch:
-#   dist/ffmenu.apk   - the app (debug-signed, installs anywhere)
-#   dist/memd         - the root-side daemon, packed into the APK as an asset
+# Builds the artefact and publishes it to the `build` branch:
+#   dist/ffmenu.apk   - the app, signed with the repository's own key so an
+#                       update installs over the previous one instead of
+#                       demanding an uninstall
 #
 # No local Android SDK is needed: download from the build branch.
 
@@ -29,18 +30,6 @@ jobs:
         with:
           distribution: temurin
           java-version: "17"
-
-      - name: NDK
-        run: |
-          echo "ANDROID_NDK_HOME=$ANDROID_NDK_LATEST_HOME" >> "$GITHUB_ENV"
-          echo "ndk: $ANDROID_NDK_LATEST_HOME"
-
-      - name: build daemon
-        run: |
-          bash android/daemon/build.sh
-          file android/app/app/src/main/assets/memd
-          # a static arm64 binary, nothing else
-          test "$(stat -c%s android/app/app/src/main/assets/memd)" -gt 20000
 
       - name: tests
         run: |
@@ -71,23 +60,29 @@ jobs:
       - name: build apk
         run: |
           set -euo pipefail
-          # A fresh identity per build. The game can only blacklist what it can
-          # name - a package id, a signing certificate, a label - so none of
-          # them survives the next build. IDENTITY.txt says what this one is.
-          ID="com.a$(openssl rand -hex 3).b$(openssl rand -hex 3)"
-          # a package segment may not start with a digit - aapt rejects it
+          # One identity, kept in the repository.
+          #
+          # Earlier builds generated a fresh package id, label and signing key
+          # on every run, on the theory that a blacklisted name dies with the
+          # build. The bill landed on the buyer: Android refuses an update
+          # signed by a different key, so every release was uninstall ->
+          # reinstall -> re-paste the key, and a never-seen certificate on a
+          # random package id is exactly what an installer's scanner is trained
+          # to distrust. That is why Play Protect started refusing the APK.
+          #
+          # To retire this identity (a package name does end up on a list
+          # eventually), change ID and LABEL here and generate a new keystore:
+          #   keytool -genkeypair -keystore android/signing/release.jks ...
+          # That is a one-commit operation, and it is the only one.
+          ID="com.alokg.toolbox"
+          LABEL="Toolbox"
           echo "$ID" | grep -Eq '^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)+$' || {
-            echo "::error::generated an invalid package id: $ID"; exit 1; }
-          LABEL=$(shuf -n1 -e Utilities Files Notes Tools Services Backup)
-          PASS=$(openssl rand -hex 16)
-          ALIAS="k$(openssl rand -hex 4)"
-          keytool -genkeypair -keystore ci.jks -storepass "$PASS" -keypass "$PASS" \
-            -alias "$ALIAS" -keyalg RSA -keysize 2048 -validity 10000 \
-            -dname "CN=Android, OU=Android, O=Android, L=Android, ST=Android, C=US"
+            echo "::error::invalid package id: $ID"; exit 1; }
           gradle -p android/app assembleDebug --no-daemon --stacktrace \
             -PappId="$ID" -PappLabel="$LABEL" \
-            -PksFile="$PWD/ci.jks" -PksPass="$PASS" \
-            -PksAlias="$ALIAS" -PksKeyPass="$PASS"
+            -PksFile="$PWD/android/signing/release.jks" \
+            -PksPass="demios-toolbox-2026" -PksAlias="toolbox" \
+            -PksKeyPass="demios-toolbox-2026"
           echo "$ID" > .appid
           echo "$LABEL" > .applabel
 
@@ -108,7 +103,6 @@ jobs:
             --package "$(cat .appid)" \
             --label "$(cat .applabel)" \
             --identity dist/IDENTITY.txt
-          cp android/app/app/src/main/assets/memd dist/memd
           # The site mints keys with LICENSE_SECRET; the phone verifies with the
           # compiled-in License.SECRET. If they differ, every key sold is dead on
           # arrival and nothing else in this pipeline notices - both sides are

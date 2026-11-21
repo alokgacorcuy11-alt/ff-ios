@@ -1,17 +1,30 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
-    <!-- the overlay window (next step) and nothing else -->
+    <!--
+      Two permissions, and each one has a caller:
+
+        SYSTEM_ALERT_WINDOW  the MIRROR panel is a window over the game
+        INTERNET             a loopback socket needs it; nothing leaves the phone
+
+      What is deliberately absent, and why it matters at install time:
+
+        no accessibility service   the single strongest "this is malware" signal
+                                   an installer sees. The product never used it -
+                                   it belonged to a screen-capture aim path that
+                                   was research, not something a buyer could reach.
+        no media projection        same story: screen recording, declared and unused
+        no foreground service      nothing here runs in the background
+        no boot receiver           nothing starts itself
+        no native libraries        an ELF inside the APK is another strong signal;
+                                   the root daemon that needed one is gone
+    -->
+
     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION" />
-    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.INTERNET" />
 
     <application
         android:allowBackup="false"
-        android:extractNativeLibs="true"
         android:label="@string/app_name"
         android:theme="@android:style/Theme.Material.NoActionBar">
 
@@ -25,38 +38,5 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
-
-        <!-- loopback only: binds 127.0.0.1 and never a routable interface,
-             so it needs no exported flag and no permission beyond INTERNET -->
-        <service
-            android:name=".FeedService"
-            android:exported="false"
-            android:foregroundServiceType="specialUse">
-            <property
-                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
-                android:value="serves a per-install container to a paired client on loopback" />
-        </service>
-
-        <!-- Android 14 tears a MediaProjection down when its owner leaves the
-             foreground, so the capture has to live in a service of this type -->
-        <service
-            android:name=".VisionService"
-            android:exported="false"
-            android:foregroundServiceType="mediaProjection" />
-
-        <!-- lets this app put a touch into another app. Switched on by hand in
-             Settings, revocable there, and gone when the app is uninstalled -->
-        <service
-            android:name=".vision.AimService"
-            android:exported="true"
-            android:label="@string/app_name"
-            android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
-            <intent-filter>
-                <action android:name="android.accessibilityservice.AccessibilityService" />
-            </intent-filter>
-            <meta-data
-                android:name="android.accessibilityservice"
-                android:resource="@xml/aim_service" />
-        </service>
     </application>
 </manifest>

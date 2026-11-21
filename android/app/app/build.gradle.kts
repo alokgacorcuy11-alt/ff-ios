@@ -36,6 +36,10 @@ android {
             val ks = findProperty("ksFile") as String?
             if (ks != null) {
                 storeFile = file(ks)
+                // JKS explicitly: the JDK's default keystore type is PKCS12,
+                // and while it can read JKS through type compatibility, relying
+                // on that would make the build depend on a JVM property.
+                storeType = "JKS"
                 storePassword = findProperty("ksPass") as String?
                 keyAlias = findProperty("ksAlias") as String?
                 keyPassword = findProperty("ksKeyPass") as String?

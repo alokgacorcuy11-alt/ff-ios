@@ -8,14 +8,15 @@ build that silently kept the old package id fails here instead of shipping.
 
 Checks, in order:
 
-  * `assets/memd` is inside the APK - that is the daemon the app extracts
+  * `assets/memd` is NOT inside the APK - the buyer build ships no native
+    binary; an ELF in assets is one of the things an installer scans for
   * the package id in the binary manifest equals --package
   * the label appears in `resources.arsc` (the manifest only holds a
     `@string/app_name` reference, so the string itself lives in the table)
   * the signing certificate digest, when keytool is available
 
   python tools/verify_build.py --apk dist/ffmenu.apk \\
-      --package com.a1b2c3.d4e5f6 --label Utilities \\
+      --package com.alokg.toolbox --label Toolbox \\
       --identity dist/IDENTITY.txt
 
 Exit codes: 0 everything matches, 1 a check failed, 2 the APK could not be
@@ -95,8 +96,10 @@ def verify(apk: Path, package: str, label: str,
     except (zipfile.BadZipFile, OSError) as e:
         return [f"cannot read the APK: {e}"], facts
 
-    if DAEMON_ASSET not in names:
-        problems.append(f"{DAEMON_ASSET} is missing from the APK")
+    if DAEMON_ASSET in names:
+        problems.append(
+            f"{DAEMON_ASSET} is inside the APK - the buyer build ships no native "
+            f"binaries, and an ELF in assets is exactly what an installer flags")
 
     rep = at.triage(apk, [])
     man = rep.get("manifest") or {}

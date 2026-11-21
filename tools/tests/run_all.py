@@ -47,8 +47,6 @@ SUITES = [
     ("forge         ", HERE / "test_payload_forge.py"),
     # python forge <-> java transport, spoken over a real socket
     ("feed          ", HERE / "test_feed.py"),
-    # the frame detector, against frames whose answer is known
-    ("vision        ", HERE / "test_vision.py"),
     # keys issued in python, checked by the real java verifier
     ("license       ", HERE / "test_license.py"),
     # the panel's control surface, driven against a real socket

@@ -96,10 +96,20 @@ def main() -> int:
           "every button clears the ~88dp style minimum width")
     check("btn.setTextSize(12)" in java, "and uses one text size, set in one place")
 
-    # ---- 5. the root-only tools are folded away --------------------------
-    check(re.search(r"rootTools\.setVisibility\(View\.GONE\)", java) is not None,
-          "the root tools start collapsed, so they cannot crowd the layout")
-    check("toggleRootTools" in java, "and a toggle reveals them")
+    # ---- 5. nothing on the screen is a leftover from the research build --
+    #
+    # These are not layout rules, they are install rules: an accessibility
+    # service plus screen capture is what made Play Protect refuse the APK
+    # outright. A screen that only has the three buttons a buyer uses cannot
+    # drift back into declaring them.
+    for gone in ("rootTools", "toggleRootTools", "Vision", "Root.", "MemClient"):
+        check(gone not in java, f"the buyer screen carries no {gone}")
+    check("BIND_ACCESSIBILITY_SERVICE" not in xml and "AccessibilityService" not in xml,
+          "the manifest declares no accessibility service")
+    check("MEDIA_PROJECTION" not in xml, "and no screen capture")
+    check(xml.count("<uses-permission") == 2,
+          "exactly two permissions are requested",
+          f"{xml.count('<uses-permission')}")
 
     # ---- 6. the keyboard resizes instead of panning ----------------------
     check('android:windowSoftInputMode="adjustResize"' in xml,
@@ -107,8 +117,8 @@ def main() -> int:
 
     # ---- 7. labels stay short enough to fit three across ----------------
     labels = {n: t for n, t in LABEL.findall(java) if n in {
-        "connect", "stop", "feed", "panel", "vision", "install", "mirror", "activate"}}
-    check(len(labels) >= 8, f"all {len(labels)} button labels found", str(sorted(labels)))
+        "install", "mirror", "activate"}}
+    check(len(labels) == 3, f"all {len(labels)} button labels found", str(sorted(labels)))
     long_ones = {n: t for n, t in labels.items() if len(t) > 12}
     check(not long_ones, "no button label is too long to fit a third of the width",
           str(long_ones) if long_ones else ", ".join(sorted(labels.values())))

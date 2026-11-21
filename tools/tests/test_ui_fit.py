@@ -146,8 +146,16 @@ def main() -> int:
           "and that behaviour is a setting the buyer can see and flip")
     check("BERSIH" in java,
           "the screen says out loud whether anything is left on the phone")
-    check("releasePersistableUriPermission" in MODULE_SRC.read_text(encoding="utf-8"),
-          "the folder grant is handed back, not just the file deleted")
+    module = MODULE_SRC.read_text(encoding="utf-8")
+    check("releasePersistableUriPermission" in module,
+          "the panic wipe can hand the folder grant back")
+    # The grant is the door. Giving it back on every "off" is what made the
+    # next "on" require the system folder picker again - every session.
+    body = re.search(r"public static String remove\(Context ctx\).*?\n    \}", module, re.S)
+    check(body is not None and "releaseTree" not in body.group(0),
+          "but turning it off keeps the grant, so turning it back on stays one tap")
+    check("hasGrant" in java and "wantLog" in java,
+          "and LOG asks for the folder itself instead of reporting that it cannot")
     check("writeOwn(KEY_FILE" in java and "KEY_FILE" in java,
           "the key is stored, so it is pasted once and not once per session")
 

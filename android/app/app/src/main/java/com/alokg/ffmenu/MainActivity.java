@@ -71,6 +71,8 @@ public class MainActivity extends Activity {
     private Button activate, toggle, mirror, autoclean, diag, esp;
     /** Install mode: true appends the random tail, false writes the reference bytes. */
     private boolean installTail = true;
+    /** Set when LOG is the reason the folder picker was opened. */
+    private boolean wantLog;
     /** Put the phone back as it was when the app is left. */
     private boolean autoClean = true;
 
@@ -459,6 +461,15 @@ public class MainActivity extends Activity {
      * either the file is there and the loader refused it, or it is not there.
      */
     private void showGameLog() {
+        if (!Module.hasGrant(this)) {
+            // No remembered folder: ask for it here instead of sending the
+            // buyer off to find a menu. Installing is the only way a grant
+            // can be given, so the picker does both jobs.
+            say("folder game belum dipilih - pilih sekarang, sekali saja");
+            wantLog = true;
+            pickTree();
+            return;
+        }
         say("--- isi folder game ---");
         io.execute(() -> {
             java.util.List<Module.Entry> entries;
@@ -651,6 +662,10 @@ public class MainActivity extends Activity {
             try {
                 say(Module.installTree(this, tree, installTail));
                 installed();
+                if (wantLog) {
+                    wantLog = false;
+                    showGameLog();
+                }
             } catch (Exception e) {
                 say("picker: " + e.getMessage());
             } finally {

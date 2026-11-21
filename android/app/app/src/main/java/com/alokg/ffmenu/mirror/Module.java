@@ -106,6 +106,11 @@ public final class Module {
         return s.isEmpty() ? null : Uri.parse(s);
     }
 
+    /** Whether a folder grant has been given and is still recorded. */
+    public static boolean hasGrant(Context ctx) {
+        return rememberedTree(ctx) != null;
+    }
+
     /** Drops the record and hands the grant back to the system. */
     public static void releaseTree(Context ctx) {
         Uri tree = rememberedTree(ctx);
@@ -338,13 +343,22 @@ public final class Module {
     // ---- removal: the other half of "install" ------------------------------
 
     /**
-     * Takes the module back out, and gives the folder grant back with it.
+     * Takes the module back out.
      *
      * <p>This is what "turn it off and the phone is as it was" means in
-     * practice: one file deleted, verified deleted, and the one permission the
-     * app had been holding released. Nothing else was ever changed - there is
-     * no install step, no system setting, no background process - so nothing
-     * else has to be undone.
+     * practice: one file deleted, and verified deleted. Nothing else was ever
+     * changed - there is no install step, no system setting, no background
+     * process - so nothing else has to be undone.
+     *
+     * <p>The folder grant is deliberately <b>kept</b>. Releasing it here was a
+     * mistake: the grant is the door, and giving it back means the next
+     * AKTIFKAN has to send the buyer through the system's folder picker again -
+     * every single session. Two taps to turn it off, four to turn it back on,
+     * is exactly the "ribet" this screen exists to remove. The grant is a
+     * permission on this app, not a change to the phone: it is invisible in
+     * Settings, it reaches only the game's own folder, and uninstalling the app
+     * removes it. Only the panic wipe releases it, because that one is about
+     * leaving nothing at all.
      *
      * <p>Tried through the remembered grant first, because that is the door
      * that is still open on Android 11 and later, and it needs no taps. The
@@ -355,17 +369,13 @@ public final class Module {
         Uri tree = rememberedTree(ctx);
         if (tree != null) {
             try {
-                String r = removeTree(ctx, tree);
-                releaseTree(ctx);
-                return r;
+                return removeTree(ctx, tree);
             } catch (IOException e) {
                 viaTree = e;
             }
         }
         try {
-            String r = removeDirect(ctx);
-            releaseTree(ctx);
-            return r;
+            return removeDirect(ctx);
         } catch (IOException e) {
             if (viaTree != null) {
                 throw new IOException(e.getMessage()

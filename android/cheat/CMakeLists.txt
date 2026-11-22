@@ -24,11 +24,18 @@ set(CORE_SOURCES
 # answer to every question is checkable in seconds instead of on a phone.
 option(FFCHEAT_HOST_TEST "build the desktop test instead of the android library" OFF)
 
+# The same core, run against the real Free Fire files on a real Android kernel.
+# Built for whatever ABI the test device is, so nothing is translated.
+option(FFCHEAT_REAL_TEST "build the real-data device test" OFF)
+
 if(FFCHEAT_HOST_TEST)
     add_executable(test_core test/test_core.cpp ${CORE_SOURCES})
     target_include_directories(test_core PRIVATE src)
     enable_testing()
     add_test(NAME core COMMAND test_core)
+elseif(FFCHEAT_REAL_TEST)
+    add_executable(test_real test/test_real.cpp ${CORE_SOURCES})
+    target_include_directories(test_real PRIVATE src)
 else()
     add_library(ffcheat SHARED ${CORE_SOURCES} src/jni_entry.cpp)
     target_include_directories(ffcheat PRIVATE src)

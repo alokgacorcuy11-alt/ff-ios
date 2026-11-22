@@ -45,7 +45,8 @@ uintptr_t Meta::find_metadata_base(const Memory& mem,
 
 Meta::Meta(const Memory& mem, const Layout& layout, uintptr_t metadata_base,
            uintptr_t il2cpp_base, uintptr_t offsets_array_override)
-        : mem_(mem), layout_(layout), base_(metadata_base), type_count_(0),
+        : mem_(mem), layout_(layout), base_(metadata_base),
+          il2cpp_base_(il2cpp_base), type_count_(0),
           offsets_array_(offsets_array_override) {
     if (base_ == 0) {
         return;
@@ -63,11 +64,25 @@ Meta::Meta(const Memory& mem, const Layout& layout, uintptr_t metadata_base,
         uintptr_t offsets_ptr = 0;
         if (mem_.get_ptr(at(il2cpp_base, static_cast<int32_t>(kMetadataRegistrationRVA))
                          + kMetadataRegistrationFieldOffsets, offsets_ptr)) {
-            if (mem_.contains(offsets_ptr, sizeof(uintptr_t) * 4)) {
-                offsets_array_ = offsets_ptr;
-            }
+            offsets_array_ = resolve(offsets_ptr);
         }
     }
+}
+
+uintptr_t Meta::resolve(uintptr_t value) const {
+    if (value == 0) {
+        return 0;
+    }
+    if (mem_.contains(value, sizeof(uintptr_t))) {
+        return value;
+    }
+    if (il2cpp_base_ != 0) {
+        const uintptr_t relocated = il2cpp_base_ + value;
+        if (mem_.contains(relocated, sizeof(uintptr_t))) {
+            return relocated;
+        }
+    }
+    return 0;
 }
 
 std::string Meta::string_at(int32_t index) const {
@@ -139,6 +154,7 @@ int32_t Meta::field_offset(const TypeInfo& type, int32_t field_index) const {
     if (!mem_.get_ptr(offsets_array_ + sizeof(uintptr_t) * type.index, per_type)) {
         return -1;
     }
+    per_type = resolve(per_type);
     if (per_type == 0) {
         return -1;
     }

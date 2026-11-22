@@ -107,9 +107,21 @@ public:
 private:
     std::string string_at(int32_t index) const;
 
+    // A pointer from the image may already be absolute or may still be a
+    // link-time virtual address.
+    //
+    // In a running process the linker has applied every relocation, so the
+    // value read out of the binary is an address and can be used as is. In the
+    // file it has not, so the value is an offset from the load base. Both are
+    // handled because the same decoder reads both, and getting this wrong
+    // produces a pointer that is not mapped - which looks like "the game
+    // changed" rather than "the pointer was not relocated".
+    uintptr_t resolve(uintptr_t value) const;
+
     const Memory& mem_;
     Layout layout_;
     uintptr_t base_;
+    uintptr_t il2cpp_base_;
     int32_t type_count_;
     uintptr_t offsets_array_;
 };

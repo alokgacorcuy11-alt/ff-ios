@@ -1,7 +1,12 @@
 #include "ff_mem.h"
 
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
+#include <fcntl.h>
+#include <sys/mman.h>
+#include <sys/stat.h>
+#include <unistd.h>
 #include <utility>
 
 namespace ff {
@@ -144,6 +149,59 @@ uintptr_t find_pattern(const Memory& mem, uintptr_t begin, uintptr_t end,
         }
     }
     return 0;
+}
+
+MappedMemory::~MappedMemory() {
+    for (const Region& r : regions_) {
+        if (r.data != nullptr) {
+            ::munmap(const_cast<uint8_t*>(r.data), r.end - r.begin);
+        }
+    }
+}
+
+bool MappedMemory::add_file(const char* path, uintptr_t pretend_base) {
+    const int fd = ::open(path, O_RDONLY);
+    if (fd < 0) {
+        return false;
+    }
+    struct stat st {};
+    if (::fstat(fd, &st) != 0 || st.st_size <= 0) {
+        ::close(fd);
+        return false;
+    }
+    const size_t size = static_cast<size_t>(st.st_size);
+    void* p = ::mmap(nullptr, size, PROT_READ, MAP_PRIVATE | MAP_NORESERVE, fd, 0);
+    ::close(fd);
+    if (p == MAP_FAILED) {
+        return false;
+    }
+    Region r;
+    r.begin = pretend_base;
+    r.end = pretend_base + size;
+    r.data = static_cast<const uint8_t*>(p);
+    regions_.push_back(r);
+
+    Range range;
+    range.begin = r.begin;
+    range.end = r.end;
+    range.writable = false;
+    ranges_.push_back(range);
+
+    mapped_ += size;
+    return true;
+}
+
+bool MappedMemory::read(uintptr_t addr, void* out, size_t n) const {
+    if (out == nullptr || n == 0) {
+        return false;
+    }
+    for (const Region& r : regions_) {
+        if (addr >= r.begin && n <= r.end - addr) {
+            std::memcpy(out, r.data + (addr - r.begin), n);
+            return true;
+        }
+    }
+    return false;
 }
 
 }  // namespace ff

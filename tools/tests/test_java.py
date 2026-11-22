@@ -26,6 +26,17 @@ HERE = Path(__file__).resolve().parent
 ROOT = HERE.parent.parent
 SRC = ROOT / "android" / "app" / "app" / "src" / "main" / "java"
 
+# The root tier is a second Gradle module with its own source root. Same kind of
+# code - plain Android APIs, no AndroidX - so the same stubs cover it. It is
+# worth covering, because this is the half that runs commands as uid 0.
+ROOT_SRC = ROOT / "android" / "app" / "rootapp" / "src" / "main" / "java"
+ROOT_SOURCES = [
+    "com/alokg/roottools/Device.java",
+    "com/alokg/roottools/Guide.java",
+    "com/alokg/roottools/MainActivity.java",
+    "com/alokg/roottools/Root.java",
+]
+
 SOURCES = [
     "com/alokg/ffmenu/Config.java",
     "com/alokg/ffmenu/License.java",
@@ -654,9 +665,12 @@ def main() -> int:
         return 0
 
     missing = [s for s in SOURCES if not (SRC / s).is_file()]
+    missing += [s for s in ROOT_SOURCES if not (ROOT_SRC / s).is_file()]
     if missing:
         print(f"[FAIL] missing sources: {missing}")
         return 1
+
+    total = len(SOURCES) + len(ROOT_SOURCES)
 
     tmp = Path(tempfile.mkdtemp(prefix="java-stub-"))
     stubs = tmp / "stubs"
@@ -668,7 +682,9 @@ def main() -> int:
         p.parent.mkdir(parents=True, exist_ok=True)
         p.write_text(text.strip() + "\n", encoding="utf-8")
 
-    files = [str(stubs / rel) for rel in STUBS] + [str(SRC / s) for s in SOURCES]
+    files = ([str(stubs / rel) for rel in STUBS]
+             + [str(SRC / s) for s in SOURCES]
+             + [str(ROOT_SRC / s) for s in ROOT_SOURCES])
     r = subprocess.run(
         [javac, "-encoding", "UTF-8", "--release", "17", "-nowarn",
          "-d", str(out)] + files,
@@ -678,10 +694,10 @@ def main() -> int:
     for ln in errors[:20]:
         print(f"[FAIL] {ln}")
     print(f"[{'ok  ' if r.returncode == 0 else 'FAIL'}] "
-          f"{len(SOURCES)} sources compile against the stubs")
+          f"{total} sources compile against the stubs")
     if r.returncode == 0:
         classes = list(out.rglob("*.class"))
-        print(f"[{'ok  ' if len(classes) >= len(SOURCES) else 'FAIL'}] "
+        print(f"[{'ok  ' if len(classes) >= total else 'FAIL'}] "
               f"{len(classes)} class files produced")
 
     # --- the vocabulary. The panel writes toJson(); the laptop and LanConfig

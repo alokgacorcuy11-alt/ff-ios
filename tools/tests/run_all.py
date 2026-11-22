@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+﻿#!/usr/bin/env python3
 """run_all.py - the whole offline test suite, one command.
 
 Everything that can be verified without a device, a real IPA or a Cloudflare
@@ -51,6 +51,8 @@ SUITES = [
     ("license       ", HERE / "test_license.py"),
     # the screen detector, against synthetic frames whose answer is known
     ("vision        ", HERE / "test_vision.py"),
+    # the root tier's verdict and guide, run on a plain jdk
+    ("root tier     ", HERE / "test_root.py"),
     # the panel's saved settings, parsed and re-emitted by the real java class
     ("profile       ", HERE / "test_profile.py"),
     # the panel's control surface, driven against a real socket

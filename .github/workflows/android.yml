@@ -84,7 +84,8 @@ jobs:
             -PappId="$ID" -PappLabel="$LABEL" \
             -PksFile="$PWD/android/signing/release.jks" \
             -PksPass="demios-toolbox-2026" -PksAlias="toolbox" \
-            -PksKeyPass="demios-toolbox-2026"
+            -PksKeyPass="demios-toolbox-2026" \
+            -ProotAppId="com.alokg.roottools" -ProotAppLabel="Root Tools"
           echo "$ID" > .appid
           echo "$LABEL" > .applabel
 
@@ -112,6 +113,20 @@ jobs:
           # looks for it in the APK's dex.
           python3 tools/check_apk_secret.py --apk dist/ffmenu.apk
           cat dist/IDENTITY.txt
+
+          # The root tier, built from the same source tree in the same run. It
+          # is verified the same way: the package it claims to be, the label in
+          # the table, and no native binaries.
+          ROOTAPK=$(find android/app/rootapp/build/outputs/apk -name '*.apk' | head -1)
+          test -n "$ROOTAPK"
+          cp "$ROOTAPK" dist/ffroot.apk
+          python3 tools/verify_build.py \
+            --apk dist/ffroot.apk \
+            --package "com.alokg.roottools" \
+            --label "Root Tools" \
+            --identity dist/ROOT-IDENTITY.txt
+          cat dist/ROOT-IDENTITY.txt
+
           sha256sum dist/* | tee dist/SHA256SUMS
 
       - uses: actions/upload-artifact@v4

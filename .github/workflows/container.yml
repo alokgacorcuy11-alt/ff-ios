@@ -18,7 +18,12 @@ name: container
 on:
   push:
     paths:
+      # The patch scripts are part of this build, not separate from it. Without
+      # container/** here, a commit that only changed a patch did not trigger a
+      # build at all - the branch kept the previous APK, and the previous run's
+      # log made it look as though the change had been built. It had not.
       - ".github/workflows/container.yml"
+      - "container/**"
   workflow_dispatch:
 
 permissions:

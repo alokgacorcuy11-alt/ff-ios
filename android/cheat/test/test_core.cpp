@@ -135,6 +135,31 @@ std::vector<uint8_t> build_fixture() {
 
 // ------------------------------------------------------------------ tests --
 
+// The regression test for the bug that cost a device round trip.
+//
+// Range::contains used to read `addr >= begin && n <= end - addr`, which accepts
+// any address above the end, because the subtraction underflows and every size
+// is smaller than a wrapped-around value. With one region mapped, every address
+// tested was inside it, so nothing noticed. With two, a read aimed at the second
+// region was served by the first at an offset 8 GB past its end, and the process
+// died before it printed a line.
+static void test_range() {
+    const ff::Range r{0x1000, 0x2000, false};
+
+    check(r.contains(0x1000, 0x1000), "a range contains its first byte");
+    check(r.contains(0x1F00, 0x100), "a range contains its last byte");
+    check(!r.contains(0x2000, 1), "a range does not contain its end");
+    check(!r.contains(0xFFF, 1), "a range does not contain an address below it");
+    check(!r.contains(0x5000, 1), "a range does not contain an address above it");
+
+    // The exact shape of the original failure: an address 0x3000 past the end,
+    // with a size small enough that the wrapped subtraction still looked bigger.
+    check(!r.contains(0x5000, 8),
+          "and the size check does not wrap around to accept it");
+    check(!r.contains(UINTPTR_MAX - 8, 8),
+          "an address near the top of the space is refused too");
+}
+
 static void test_memory() {
     std::vector<uint8_t> bytes = {'h', 'i', 0, 'x'};
     ff::BlobMemory mem(bytes, kBase);
@@ -268,6 +293,7 @@ int main() {
     std::printf("================================================\n");
     std::printf(" ffcheat core (host, no android)\n");
     std::printf("================================================\n");
+    test_range();
     test_memory();
     test_metadata();
     test_math();

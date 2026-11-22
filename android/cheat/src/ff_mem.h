@@ -22,8 +22,19 @@ struct Range {
     uintptr_t end = 0;
     bool writable = false;
 
+    // addr must be *inside* the range, not merely above its start.
+    //
+    // The version of this that read `addr >= begin && n <= end - addr` passes
+    // for any address above the end, because `end - addr` underflows to a huge
+    // unsigned value and every size is smaller than it. The caller then copies
+    // from a pointer that has walked gigabytes past the mapping.
+    //
+    // It never showed up in the desktop test, where the image is one region and
+    // every address is inside it. It showed up the first time two regions were
+    // mapped: a read meant for the second range was served by the first, at an
+    // offset 8 GB past its end.
     bool contains(uintptr_t addr, size_t n) const {
-        return addr >= begin && n <= end - addr;
+        return addr >= begin && addr < end && n <= end - addr;
     }
 };
 

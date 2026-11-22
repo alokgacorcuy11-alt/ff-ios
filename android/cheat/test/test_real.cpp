@@ -18,6 +18,7 @@
 //   test_real <libil2cpp.so> <global-metadata.dat> [ClassName] [FieldName]
 
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <string>
 #include <vector>
@@ -49,22 +50,47 @@ constexpr uintptr_t kIl2cppBase = 0x400000000ULL;
 
 }  // namespace
 
+// The stages exist so a crash on a device can be bisected without another
+// build: run `test_real --stage 1`, `--stage 2`, and the last number that
+// printed is the one that fell over.
+static int stage_wanted(char** argv, int argc) {
+    for (int i = 1; i + 1 < argc; ++i) {
+        if (std::strcmp(argv[i], "--stage") == 0) {
+            return std::atoi(argv[i + 1]);
+        }
+    }
+    return 1000;
+}
+
 int main(int argc, char** argv) {
-    if (argc < 3) {
+    // Unbuffered, and this is not a style choice: a device test that dies writes
+    // nothing if stdout is a pipe, because the buffer never flushes. The first
+    // run of this crashed with no output at all and the crash could have been
+    // anywhere.
+    std::setvbuf(stdout, nullptr, _IONBF, 0);
+
+    if (argc < 3 || argv[1][0] == '-' ) {
         std::printf("usage: %s <libil2cpp.so> <global-metadata.dat> "
                     "[ClassName] [FieldName]\n", argv[0]);
         return 2;
     }
+    const int until = stage_wanted(argv, argc);
+
+#define STAGE(n) do { if (until < (n)) { std::printf("stopped before stage %d\n", (n)); return 0; } } while (0)
 
     std::printf("==============================================================\n");
     std::printf(" ffcheat real-data decode\n");
     std::printf("==============================================================\n");
 
+    STAGE(1);
+    std::printf("stage 1: mapping metadata\n");
     ff::MappedMemory mem;
     if (!mem.add_file(argv[2], kMetaBase)) {
         std::printf("[FAIL] cannot map %s\n", argv[2]);
         return 1;
     }
+    STAGE(2);
+    std::printf("stage 2: mapping libil2cpp\n");
     if (!mem.add_file(argv[1], kIl2cppBase)) {
         std::printf("[FAIL] cannot map %s\n", argv[1]);
         return 1;
@@ -73,13 +99,19 @@ int main(int argc, char** argv) {
                 mem.ranges().size());
 
     // --- the header has to be found the same way the cheat finds it --------
+    STAGE(3);
+    std::printf("stage 3: searching for the metadata header\n");
     uintptr_t scan_begin = 0;
     uintptr_t scan_end = 0;
     const uintptr_t meta_base = ff::Meta::find_metadata_base(mem, scan_begin, scan_end);
     ok(meta_base == kMetaBase, "finds the metadata header by its sanity and version",
        meta_base == kMetaBase ? "" : "got " + std::to_string(meta_base));
 
+    STAGE(4);
+    std::printf("stage 4: constructing the decoder\n");
     ff::Meta meta(mem, ff::kLayoutFF132, meta_base, kIl2cppBase);
+    std::printf("stage 5: decoder built, types=%d offsets=%d\n",
+                meta.type_count(), meta.offsets_ready() ? 1 : 0);
 
     // 43,627 is the number the Python dumper read from this same file, with no
     // C++ involved. Agreement between two independent readers is the point.
@@ -90,6 +122,9 @@ int main(int argc, char** argv) {
        "Il2CppMetadataRegistration");
 
     // --- the class the ESP is written against -----------------------------
+    STAGE(6);
+    std::printf("stage 6: searching %d types for %s\n", meta.type_count(),
+                ff::kPlayerName);
     const int32_t player = meta.find_type_any(ff::kPlayerName);
     ok(player == 31821, "COW.GamePlay.Player is at type index 31821",
        std::to_string(player));
@@ -154,6 +189,8 @@ int main(int argc, char** argv) {
     }
 
     // --- the live scan, which is expected to find nothing here ------------
+    STAGE(7);
+    std::printf("stage 7: live class scan\n");
     ff::ClassFinder finder(mem, meta);
     ff::ClassHit hit;
     const bool found = finder.find(type, hit);

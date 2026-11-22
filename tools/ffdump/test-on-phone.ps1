@@ -123,12 +123,38 @@ foreach ($f in @($Lib, $Meta)) {
     Ok ("{0,-30} {1,12:N0} B  sha256 {2}..." -f (Split-Path $f -Leaf), (Get-Item $f).Length, $h)
 }
 
-# sofix.py applies the relocations the linker would have. Without it the
-# pointer tables read as zeros and every offset comes back wrong, quietly.
-$libHead = [System.IO.File]::ReadAllBytes($Lib)[0..3]
-if (-not ($libHead[0] -eq 0x7f -and $libHead[1] -eq 0x45)) { Fail "$Lib is not an ELF file." }
-$libBytes = [System.IO.File]::ReadAllBytes($Lib)
-if ($libBytes.Length -lt 0xA5C7F60) { Fail "$Lib is too small to contain the metadata registration." }
+# sofix.py applies the relocations the linker would have. Without it the pointer
+# tables read as zeros and every field offset comes back as a plausible wrong
+# number - the exact failure that cost two rounds of debugging.
+#
+# The check is the field-offset pointer itself. Its virtual address is
+# 0xa5c7f60 + 0x58 = 0xa5c7fb8, and .data.rel.ro sits 0x8000 below its own
+# virtual address in the file, so the value lives at file offset 0xa5bffb8.
+# Verified against both files: the sofix.py build reads 0xa8bf168 there, the one
+# straight out of the APK reads zero.
+$head = [byte[]]::new(4)
+$fs = [System.IO.File]::OpenRead($Lib)
+try {
+    $fs.Read($head, 0, 4) | Out-Null
+    if (-not ($head[0] -eq 0x7f -and $head[1] -eq 0x45 -and $head[2] -eq 0x4c -and $head[3] -eq 0x46)) {
+        Fail "$Lib is not an ELF file."
+    }
+    $fs.Seek(0xA5BFFB8, [System.IO.SeekOrigin]::Begin) | Out-Null
+    $value = [byte[]]::new(8)
+    if ($fs.Read($value, 0, 8) -ne 8) { Fail "could not read the registration slot." }
+    $ptr = [BitConverter]::ToUInt64($value, 0)
+} finally { $fs.Dispose() }
+
+if ($ptr -eq 0) {
+    Fail ("$Lib still has its pointer tables zeroed - run tools/ffdump/sofix.py first. " +
+          "This is the libil2cpp.so from the APK, not the fixed one.")
+}
+if ($ptr -ne 0xA8BF168) {
+    Write-Host "  [warn] field-offset pointer is $('{0:x}' -f $ptr), expected a8bf168." -ForegroundColor Yellow
+    Write-Host "         A different game version is fine; a value near zero is not." -ForegroundColor Yellow
+} else {
+    Ok "libil2cpp.so is the sofix.py build (field-offset pointer a8bf168)"
+}
 
 # --- push -------------------------------------------------------------------
 Say ""

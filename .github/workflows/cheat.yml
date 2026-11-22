@@ -78,13 +78,18 @@ jobs:
             cmake --build "build-$ABI" -j >> build.log 2>&1 \
               || echo "BUILD FAILED $ABI" >> build.log
           done
-          echo "=== real-data test x86_64" >> build.log
-          cmake -S android/cheat -B build-real -DFFCHEAT_REAL_TEST=ON \
-            -DCMAKE_TOOLCHAIN_FILE="$TC" -DANDROID_ABI=x86_64 \
-            -DANDROID_PLATFORM=android-26 -DCMAKE_BUILD_TYPE=Release >> build.log 2>&1 \
-            || echo "CONFIGURE FAILED real" >> build.log
-          cmake --build build-real -j >> build.log 2>&1 \
-            || echo "BUILD FAILED real" >> build.log
+          # One binary per ABI the test device might be. The phone this has to
+          # run on is arm64; the emulator is x86_64. Pushing the wrong one gives
+          # a bare "exec format error" that says nothing useful.
+          for ABI in x86_64 arm64-v8a; do
+            echo "=== real-data test $ABI" >> build.log
+            cmake -S android/cheat -B "build-real-$ABI" -DFFCHEAT_REAL_TEST=ON \
+              -DCMAKE_TOOLCHAIN_FILE="$TC" -DANDROID_ABI="$ABI" \
+              -DANDROID_PLATFORM=android-26 -DCMAKE_BUILD_TYPE=Release >> build.log 2>&1 \
+              || echo "CONFIGURE FAILED real $ABI" >> build.log
+            cmake --build "build-real-$ABI" -j >> build.log 2>&1 \
+              || echo "BUILD FAILED real $ABI" >> build.log
+          done
           tail -n 40 build.log
 
       - name: verify the abi of what came out
@@ -114,8 +119,10 @@ jobs:
             SO=$(find "build-$ABI" -name libffcheat.so 2>/dev/null | head -1 || true)
             [ -n "$SO" ] && cp "$SO" "dist/libffcheat-$ABI.so" || true
           done
-          T=$(find build-real -name test_real 2>/dev/null | head -1 || true)
-          [ -n "$T" ] && cp "$T" dist/test_real-x86_64 || true
+          for ABI in x86_64 arm64-v8a; do
+            T=$(find "build-real-$ABI" -name test_real 2>/dev/null | head -1 || true)
+            [ -n "$T" ] && cp "$T" "dist/test_real-$ABI" || true
+          done
           cp build.log dist/cheat-build.log
           if [ -f host-test.log ]; then cp host-test.log dist/host-test.log; fi
           { echo "sha ${GITHUB_SHA}"; echo "run ${GITHUB_RUN_NUMBER}"; } > dist/BUILD.txt

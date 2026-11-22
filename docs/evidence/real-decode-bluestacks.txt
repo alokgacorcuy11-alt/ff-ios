@@ -1,0 +1,111 @@
+ffcheat real-data decode
+========================
+
+Where this ran
+--------------
+BlueStacks 5, Android 9 (API 28), x86_64.
+The test binary was built for x86_64 and ran natively - no ARM translation was
+involved, so what is being measured is the decoder and not libhoudini.
+
+Input
+-----
+  global-metadata.dat   56,970,552 B   from split_asset_pack_install_time.apk
+  libil2cpp.so         184,044,016 B   from split_config.arm64_v8a.apk,
+                                       with .rela.dyn applied by sofix.py
+  total mapped         241,014,568 B   over 9 PT_LOAD segments
+
+The point of the test
+---------------------
+Two independent readers of the same two files. The Python dumper
+(tools/ffdump/ffdump.py) produced the numbers first. The C++ decoder is what
+ships inside the cheat. They agree on everything, or something is wrong in one
+of them.
+
+Raw output
+----------
+  ==============================================================
+   ffcheat real-data decode
+  ==============================================================
+  stage 1: mapping metadata
+  stage 2: mapping libil2cpp
+    mapped 241014568 bytes over 9 regions (segments: 9)
+
+  stage 3: searching for the metadata header
+  [ok  ] finds the metadata header by its sanity and version
+  stage 4: constructing the decoder
+    metadata base     0x200000000
+    il2cpp base       0x400000000
+    registration rva  0xa5c7f60
+    registration at   0x40a5c7f60
+    mapped bytes      241014568
+    contains(mr, 8)   1
+    contains(+0x58)   1
+    reading +0x58 ...
+    got=1 value=0xa8bf168
+    constructing Meta ...
+  stage 5: decoder built, types=43627 offsets=1
+  [ok  ] type count matches the python dump 43627
+  [ok  ] reaches the field-offset table in libil2cpp.so through Il2CppMetadataRegistration
+  stage 6: searching 43627 types for COW.GamePlay.Player
+  [ok  ] COW.GamePlay.Player is at type index 31821 31821
+  [ok  ] reads the type definition
+  [ok  ] Player has 1,689 fields 1689
+  [ok  ] and 4,136 methods 4136
+  [ok  ] field offset matches the generated header m_GroundHitPos = 7608 (header says 7608)
+  [ok  ] field offset matches the generated header m_TransformObject = 4744 (header says 4744)
+  [ok  ] field offset matches the generated header TeamModeID = 1076 (header says 1076)
+  [ok  ] field offset matches the generated header TeamColorStr = 2072 (header says 2072)
+  [ok  ] field offset matches the generated header Speed = 1376 (header says 1376)
+  [ok  ] field offset matches the generated header AimCount = 1356 (header says 1356)
+  [ok  ] field offset matches the generated header m_AimAssist = 1592 (header says 1592)
+
+    COW.GamePlay.Player -> type 31821
+    COW.GamePlay.Player  (1689 fields, 4136 methods)
+      +0x03e8  MainCameraTransform
+      +0x05e8  lockTransformMusicWhenUpdate
+      +0x1288  m_TransformObject
+      +0x12b8  m_NBTransformAnimator
+      +0x12c0  m_GBGPTransformAnimator
+  stage 7: live class scan
+
+    live class scan: no hit (expected: no IL2CPP runtime here), 0 bytes searched
+  [ok  ] the class scan runs and does not crash on a 241 MB image
+
+  15 passed, 0 failed
+
+What it proves
+--------------
+  the metadata header is found by its sanity value and version, from a scan
+  the type table decodes to 43,627 entries
+  Il2CppMetadataRegistration is reached by RVA and yields the field-offset
+    pointer 0xa8bf168, the same value the Python reader found
+  COW.GamePlay.Player is found at type 31821 with 1,689 fields and 4,136 methods
+  all seven field offsets the ESP depends on match the generated header exactly
+
+What it does not prove
+----------------------
+  the live class scan        there is no IL2CPP runtime in this process, so there
+                             is no Il2CppClass to find. The scan correctly
+                             reports no hit; it cannot be exercised further
+                             without a running game.
+  the player list            not implemented, and not findable statically
+  drawing                    needs a live camera matrix
+  that Free Fire boots in the container   a separate question, and the one that
+                             still needs a real phone
+
+Three bugs this test found, all of which looked fine
+----------------------------------------------------
+  Range::contains accepted any address above a range's start, because
+  `end - addr` underflows and every size is smaller than a wrapped value. One
+  region masked it; two regions made it a segfault.
+
+  MappedMemory::read had its own copy of that same test, so fixing the shared
+  one changed nothing for the path that was failing.
+
+  add_elf read e_phnum at 0x3A, which is e_shentsize. Program headers and
+  section headers are different tables two bytes apart.
+
+None of the three produced a wrong-looking number in a small test. The first two
+needed two mapped regions to appear at all, and the third needed an ELF whose
+file offsets differ from its virtual addresses - which is every real shared
+object, and no fixture until this one.

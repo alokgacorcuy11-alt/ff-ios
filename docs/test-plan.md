@@ -18,9 +18,48 @@ time than it saves.
 | the game's classes and field offsets | 43,627 types, 475,641 fields, 336,329 methods, real offsets | `python tools/ffdump/ffdump.py --fields "..."` against the shipped metadata |
 | the pointer tables in `libil2cpp.so` | rebuilt; 61,257 live words became 394,081, every pointer landing in a real section | `python tools/ffdump/sofix.py` |
 | the offset header | generated, committed at `android/cheat/src/ff_offsets.h` | `ffdump.py --emit` |
-| the cheat's core logic | 37 tests, 0 failed | `cmake -S android/cheat -B b -DFFCHEAT_HOST_TEST=ON && cmake --build b && ./b/test_core` |
+| the cheat's core logic | 54 tests, 0 failed | `cmake -S android/cheat -B b -DFFCHEAT_HOST_TEST=ON && cmake --build b && ./b/test_core` |
+| **the decoder against the real game files, on a real Android kernel** | **15 tests, 0 failed** - every field offset matches the Python dump | see `docs/evidence/real-decode-bluestacks.txt`; runs natively on x86_64, no ARM translation |
 | the library builds for both ABIs | `libffcheat-arm64-v8a.so` 2,873,376 B, `libffcheat-armeabi-v7a.so` 2,202,032 B, 0 warnings | CI job `cheat`, artefacts on the `cheat` branch |
 | the product's own suite | 774 checks, all pass | `python tools/tests/run_all.py` |
+
+The real-data decode is worth describing separately, because it is the strongest
+evidence in this project and it needed no phone and no game. It maps the shipped
+`global-metadata.dat` and `libil2cpp.so` read-only at invented addresses and runs
+the shipped decoder through them. Two independent readers - the Python dumper and
+the C++ that goes into the cheat - agree on every number:
+
+```
+got=1 value=0xa8bf168                        the field-offset pointer
+types=43627
+COW.GamePlay.Player at type index 31821, 1,689 fields, 4,136 methods
+m_GroundHitPos 7608   m_TransformObject 4744   TeamModeID 1076
+TeamColorStr 2072     Speed 1376               AimCount 1356
+m_AimAssist 1592
+```
+
+To run it:
+
+```
+# build (CI does this and publishes to the cheat branch)
+cmake -S android/cheat -B build-real -DFFCHEAT_REAL_TEST=ON \
+  -DCMAKE_TOOLCHAIN_FILE=$ANDROID_SDK_ROOT/ndk/29.0.13846066/build/cmake/android.toolchain.cmake \
+  -DANDROID_ABI=x86_64 -DANDROID_PLATFORM=android-26 -DCMAKE_BUILD_TYPE=Release
+cmake --build build-real -j
+
+adb push build-real/test_real /data/local/tmp/
+adb push global-metadata.dat libil2cpp.so /data/local/tmp/
+adb shell "cd /data/local/tmp && chmod 755 test_real && \
+  ./test_real ./libil2cpp.so ./global-metadata.dat COW.GamePlay.Player Transform"
+```
+
+`libil2cpp.so` must be the one `sofix.py` wrote, not the one out of the APK: the
+shipped file has its pointer tables as zeros because the linker fills them at
+load time, and this test has no linker.
+
+Pass is `15 passed, 0 failed`. A failure prints the value it read next to the
+value it expected, so the difference says whether the offset moved by a patch or
+the decoder is wrong.
 
 Nothing in stage 0 needs a phone. It is listed so that a later failure is not
 mistaken for something already proven.
@@ -180,7 +219,7 @@ reasoning behind that is written down and measured.
 |---|---|---|
 | 0 | is the static work real | already answered |
 | 1 | does the game run inside the container | a phone, 10 minutes |
-| 2 | does the cheat find the game | a phone with the library injected |
+| 2 | does the cheat find the game | a phone with the library injected - but the decode half is already proven above |
 | 3 | can the roster be found | one live match |
 | 4 | does it draw | one live match |
 | 5 | what is visible from outside | same session, no extra work |

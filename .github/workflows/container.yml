@@ -93,6 +93,9 @@ jobs:
           # Instrumentation, not a fix: every step of launchApk logs, so a hang
           # names itself instead of being guessed at.
           python3 container/patch_launch_trace.py base
+          # The measurement the whole no-root approach rests on: can the
+          # container read the memory of the guest it spawned, same uid?
+          python3 container/patch_memory_probe.py base
 
       - uses: gradle/actions/setup-gradle@v3
         with:

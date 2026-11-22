@@ -99,6 +99,10 @@ jobs:
           # The stack overflow the crash patch made visible: the provider hook
           # called the hooked PackageManager and re-entered itself.
           python3 container/patch_provider_recursion.py base
+          # Pre-Android-12 the calling package travels as a String, and nothing
+          # rewrote it, so the system refused the guest's package on the
+          # container's uid.
+          python3 container/patch_provider_calling_pkg.py base
 
       - uses: gradle/actions/setup-gradle@v3
         with:

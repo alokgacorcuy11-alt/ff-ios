@@ -1,0 +1,59 @@
+================================================
+ ffcheat core (host, no android)
+================================================
+[ok  ] a range contains its first byte 
+[ok  ] a range contains its last byte 
+[ok  ] a range does not contain its end 
+[ok  ] a range does not contain an address below it 
+[ok  ] a range does not contain an address above it 
+[ok  ] and the size check does not wrap around to accept it 
+[ok  ] an address near the top of the space is refused too 
+[ok  ] a read in the first region is served by it 
+[ok  ] a read in the second region is served by the second, not by the first 
+[ok  ] the last byte of the second region is still the second region 
+[ok  ] past the end of the second region is refused 
+[ok  ] the gap between them is refused 
+[ok  ] a read that straddles the end is refused 
+[ok  ] an ELF is mapped by its segments 
+[ok  ] a read at the segment's virtual address returns the bytes at its own file offset got 0
+[ok  ] a file offset is not treated as a virtual address 
+[ok  ] and nothing is mapped past the end of the segment 
+[ok  ] reads a NUL-terminated string 
+[ok  ] refuses an address past the end 
+[ok  ] refuses a read past the end 
+[ok  ] an empty string is not a name 
+[ok  ] finds the metadata header in a mapped region 
+[ok  ] reads the type count from the table length 3
+[ok  ] links the field-offset array 
+[ok  ] finds a type by name and namespace 0
+[ok  ] finds it by full name 
+[ok  ] a missing type is -1 
+[ok  ] reads the field and method counts 
+[ok  ] builds the full name COW.GamePlay.Player
+[ok  ] remembers where the name lives in the string blob, which is what the class scan searches for 
+[ok  ] reads a field name m_Health
+[ok  ] reads the field offset 32
+[ok  ] and the second one 36
+[ok  ] finds a field by name 
+[ok  ] a missing field is -1 
+[ok  ] reads a method name get_Speed
+[ok  ] an out-of-range field is -1, not a guess 
+[ok  ] the origin projects to the centre of the screen 
+[ok  ] a point behind the camera does not project 
+[ok  ] a point on the near plane does not project 
+[ok  ] a point far off axis does not project 
+[ok  ] up in the world is up on the screen 
+[ok  ] builds a box for a player in front 
+[ok  ] the box has a positive height 30.000000
+[ok  ] a nearer player draws a taller box 40.909088 > 30.000000
+[ok  ] no box for a player behind the camera 
+[ok  ] distance is Euclidean 
+[ok  ] reads a player 
+[ok  ] the player has a position 
+[ok  ] the position is the one that was written 
+[ok  ] reads the team 3
+[ok  ] the same team is not an enemy 
+[ok  ] a different team is an enemy 
+[ok  ] a player outside the image is rejected instead of boxed at the origin 
+
+54 passed, 0 failed

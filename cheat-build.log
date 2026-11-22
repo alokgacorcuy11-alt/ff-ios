@@ -1,0 +1,163 @@
+=== host configure
+-- The CXX compiler identification is GNU 15.2.0
+-- Detecting CXX compiler ABI info
+-- Detecting CXX compiler ABI info - done
+-- Check for working CXX compiler: /usr/bin/c++ - skipped
+-- Detecting CXX compile features
+-- Detecting CXX compile features - done
+-- Configuring done (1.0s)
+-- Generating done (0.0s)
+-- Build files have been written to: /home/runner/work/ff-ios/ff-ios/build-host
+=== host build
+[ 62%] Building CXX object CMakeFiles/test_core.dir/src/ff_math.cpp.o
+[ 87%] Building CXX object CMakeFiles/test_core.dir/src/ff_stealth.cpp.o
+[ 50%] Building CXX object CMakeFiles/test_core.dir/src/ff_scan.cpp.o
+[ 25%] Building CXX object CMakeFiles/test_core.dir/src/ff_meta.cpp.o
+[ 75%] Building CXX object CMakeFiles/test_core.dir/src/ff_esp.cpp.o
+[ 12%] Building CXX object CMakeFiles/test_core.dir/src/ff_mem.cpp.o
+[ 37%] Building CXX object CMakeFiles/test_core.dir/test/test_core.cpp.o
+[100%] Linking CXX executable test_core
+[100%] Built target test_core
+=== host run
+================================================
+ ffcheat core (host, no android)
+================================================
+[ok  ] a range contains its first byte 
+[ok  ] a range contains its last byte 
+[ok  ] a range does not contain its end 
+[ok  ] a range does not contain an address below it 
+[ok  ] a range does not contain an address above it 
+[ok  ] and the size check does not wrap around to accept it 
+[ok  ] an address near the top of the space is refused too 
+[ok  ] a read in the first region is served by it 
+[ok  ] a read in the second region is served by the second, not by the first 
+[ok  ] the last byte of the second region is still the second region 
+[ok  ] past the end of the second region is refused 
+[ok  ] the gap between them is refused 
+[ok  ] a read that straddles the end is refused 
+[ok  ] an ELF is mapped by its segments 
+[ok  ] a read at the segment's virtual address returns the bytes at its own file offset got 0
+[ok  ] a file offset is not treated as a virtual address 
+[ok  ] and nothing is mapped past the end of the segment 
+[ok  ] reads a NUL-terminated string 
+[ok  ] refuses an address past the end 
+[ok  ] refuses a read past the end 
+[ok  ] an empty string is not a name 
+[ok  ] finds the metadata header in a mapped region 
+[ok  ] reads the type count from the table length 3
+[ok  ] links the field-offset array 
+[ok  ] finds a type by name and namespace 0
+[ok  ] finds it by full name 
+[ok  ] a missing type is -1 
+[ok  ] reads the field and method counts 
+[ok  ] builds the full name COW.GamePlay.Player
+[ok  ] remembers where the name lives in the string blob, which is what the class scan searches for 
+[ok  ] reads a field name m_Health
+[ok  ] reads the field offset 32
+[ok  ] and the second one 36
+[ok  ] finds a field by name 
+[ok  ] a missing field is -1 
+[ok  ] reads a method name get_Speed
+[ok  ] an out-of-range field is -1, not a guess 
+[ok  ] the origin projects to the centre of the screen 
+[ok  ] a point behind the camera does not project 
+[ok  ] a point on the near plane does not project 
+[ok  ] a point far off axis does not project 
+[ok  ] up in the world is up on the screen 
+[ok  ] builds a box for a player in front 
+[ok  ] the box has a positive height 30.000000
+[ok  ] a nearer player draws a taller box 40.909088 > 30.000000
+[ok  ] no box for a player behind the camera 
+[ok  ] distance is Euclidean 
+[ok  ] reads a player 
+[ok  ] the player has a position 
+[ok  ] the position is the one that was written 
+[ok  ] reads the team 3
+[ok  ] the same team is not an enemy 
+[ok  ] a different team is an enemy 
+[ok  ] a player outside the image is rejected instead of boxed at the origin 
+
+54 passed, 0 failed
+=== sdkmanager: /usr/local/lib/android/sdk/cmdline-tools/latest/bin/sdkmanager
+Loading package information...                                                  Loading local repository...                                                     [                                       ] 3% Loading local repository...        [                                       ] 3% Fetch remote repository...         [=                                      ] 3% Fetch remote repository...         [=                                      ] 4% Fetch remote repository...         [=                                      ] 5% Fetch remote repository...         [==                                     ] 5% Fetch remote repository...         [==                                     ] 6% Fetch remote repository...         [==                                     ] 7% Fetch remote repository...         [==                                     ] 7% Computing updates...               [===                                    ] 8% Computing updates...               [===                                    ] 10% Computing updates...              [===                                    ] 10% Installing NDK (Side by side) 29.0[===                                    ] 10% Downloading android-ndk-r29-beta3-[====                                   ] 10% Downloading android-ndk-r29-beta3-[====                                   ] 11% Downloading android-ndk-r29-beta3-[====                                   ] 12% Downloading android-ndk-r29-beta3-[=====                                  ] 13% Downloading android-ndk-r29-beta3-[=====                                  ] 14% Downloading android-ndk-r29-beta3-[=====                                  ] 15% Downloading android-ndk-r29-beta3-[======                                 ] 15% Downloading android-ndk-r29-beta3-[======                                 ] 16% Downloading android-ndk-r29-beta3-[======                                 ] 17% Downloading android-ndk-r29-beta3-[=======                                ] 18% Downloading android-ndk-r29-beta3-[=======                                ] 19% Downloading android-ndk-r29-beta3-[=======                                ] 20% Downloading android-ndk-r29-beta3-[========                               ] 20% Downloading android-ndk-r29-beta3-[========                               ] 21% Downloading android-ndk-r29-beta3-[========                               ] 22% Downloading android-ndk-r29-beta3-[=========                              ] 23% Downloading android-ndk-r29-beta3-[=========                              ] 24% Downloading android-ndk-r29-beta3-[=========                              ] 25% Downloading android-ndk-r29-beta3-[==========                             ] 25% Downloading android-ndk-r29-beta3-[==========                             ] 26% Downloading android-ndk-r29-beta3-[==========                             ] 27% Downloading android-ndk-r29-beta3-[===========                            ] 28% Downloading android-ndk-r29-beta3-[===========                            ] 29% Downloading android-ndk-r29-beta3-[===========                            ] 30% Downloading android-ndk-r29-beta3-[============                           ] 30% Downloading android-ndk-r29-beta3-[============                           ] 31% Downloading android-ndk-r29-beta3-[============                           ] 32% Downloading android-ndk-r29-beta3-[============                           ] 33% Downloading android-ndk-r29-beta3-[============                           ] 33% Unzipping...                      [============                           ] 33% Unzipping... android-ndk-r29-beta3[=============                          ] 33% Unzipping... android-ndk-r29-beta3[=============                          ] 34% Unzipping... android-ndk-r29-beta3[=============                          ] 35% Unzipping... android-ndk-r29-beta3[==============                         ] 35% Unzipping... android-ndk-r29-beta3[==============                         ] 36% Unzipping... android-ndk-r29-beta3[==============                         ] 37% Unzipping... android-ndk-r29-beta3[===============                        ] 38% Unzipping... android-ndk-r29-beta3[===============                        ] 39% Unzipping... android-ndk-r29-beta3[===============                        ] 40% Unzipping... android-ndk-r29-beta3[================                       ] 40% Unzipping... android-ndk-r29-beta3[================                       ] 41% Unzipping... android-ndk-r29-beta3[================                       ] 42% Unzipping... android-ndk-r29-beta3[=================                      ] 43% Unzipping... android-ndk-r29-beta3[=================                      ] 44% Unzipping... android-ndk-r29-beta3[=================                      ] 45% Unzipping... android-ndk-r29-beta3[==================                     ] 45% Unzipping... android-ndk-r29-beta3[==================                     ] 46% Unzipping... android-ndk-r29-beta3[==================                     ] 47% Unzipping... android-ndk-r29-beta3[===================                    ] 48% Unzipping... android-ndk-r29-beta3[===================                    ] 49% Unzipping... android-ndk-r29-beta3[===================                    ] 50% Unzipping... android-ndk-r29-beta3[====================                   ] 50% Unzipping... android-ndk-r29-beta3[====================                   ] 51% Unzipping... android-ndk-r29-beta3[====================                   ] 52% Unzipping... android-ndk-r29-beta3[=====================                  ] 53% Unzipping... android-ndk-r29-beta3[=====================                  ] 54% Unzipping... android-ndk-r29-beta3[=====================                  ] 55% Unzipping... android-ndk-r29-beta3[=======================================] 100% Unzipping... android-ndk-r29-beta
+
+=== toolchain: /usr/local/lib/android/sdk/ndk/29.0.13846066/build/cmake/android.toolchain.cmake
+=== library arm64-v8a
+-- The CXX compiler identification is Clang 21.0.0
+-- Detecting CXX compiler ABI info
+-- Detecting CXX compiler ABI info - done
+-- Check for working CXX compiler: /usr/local/lib/android/sdk/ndk/29.0.13846066/toolchains/llvm/prebuilt/linux-x86_64/bin/clang++ - skipped
+-- Detecting CXX compile features
+-- Detecting CXX compile features - done
+-- Configuring done (0.3s)
+-- Generating done (0.0s)
+-- Build files have been written to: /home/runner/work/ff-ios/ff-ios/build-arm64-v8a
+[ 50%] Building CXX object CMakeFiles/ffcheat.dir/src/ff_math.cpp.o
+[ 62%] Building CXX object CMakeFiles/ffcheat.dir/src/ff_esp.cpp.o
+[ 75%] Building CXX object CMakeFiles/ffcheat.dir/src/jni_entry.cpp.o
+[ 37%] Building CXX object CMakeFiles/ffcheat.dir/src/ff_mem.cpp.o
+[ 12%] Building CXX object CMakeFiles/ffcheat.dir/src/ff_meta.cpp.o
+[ 87%] Building CXX object CMakeFiles/ffcheat.dir/src/ff_stealth.cpp.o
+[ 37%] Building CXX object CMakeFiles/ffcheat.dir/src/ff_scan.cpp.o
+[100%] Linking CXX shared library libffcheat.so
+[100%] Built target ffcheat
+=== library armeabi-v7a
+-- The CXX compiler identification is Clang 21.0.0
+-- Detecting CXX compiler ABI info
+-- Detecting CXX compiler ABI info - done
+-- Check for working CXX compiler: /usr/local/lib/android/sdk/ndk/29.0.13846066/toolchains/llvm/prebuilt/linux-x86_64/bin/clang++ - skipped
+-- Detecting CXX compile features
+-- Detecting CXX compile features - done
+-- Configuring done (0.1s)
+-- Generating done (0.0s)
+-- Build files have been written to: /home/runner/work/ff-ios/ff-ios/build-armeabi-v7a
+[ 62%] Building CXX object CMakeFiles/ffcheat.dir/src/ff_math.cpp.o
+[ 37%] Building CXX object CMakeFiles/ffcheat.dir/src/ff_scan.cpp.o
+[ 87%] Building CXX object CMakeFiles/ffcheat.dir/src/jni_entry.cpp.o
+[ 75%] Building CXX object CMakeFiles/ffcheat.dir/src/ff_stealth.cpp.o
+[ 25%] Building CXX object CMakeFiles/ffcheat.dir/src/ff_meta.cpp.o
+[ 62%] Building CXX object CMakeFiles/ffcheat.dir/src/ff_esp.cpp.o
+[ 12%] Building CXX object CMakeFiles/ffcheat.dir/src/ff_mem.cpp.o
+[100%] Linking CXX shared library libffcheat.so
+[100%] Built target ffcheat
+=== real-data test x86_64
+-- The CXX compiler identification is Clang 21.0.0
+-- Detecting CXX compiler ABI info
+-- Detecting CXX compiler ABI info - done
+-- Check for working CXX compiler: /usr/local/lib/android/sdk/ndk/29.0.13846066/toolchains/llvm/prebuilt/linux-x86_64/bin/clang++ - skipped
+-- Detecting CXX compile features
+-- Detecting CXX compile features - done
+-- Configuring done (0.1s)
+-- Generating done (0.0s)
+-- Build files have been written to: /home/runner/work/ff-ios/ff-ios/build-real-x86_64
+[ 75%] Building CXX object CMakeFiles/test_real.dir/src/ff_math.cpp.o
+[ 50%] Building CXX object CMakeFiles/test_real.dir/src/ff_scan.cpp.o
+[ 37%] Building CXX object CMakeFiles/test_real.dir/src/ff_meta.cpp.o
+[ 12%] Building CXX object CMakeFiles/test_real.dir/test/test_real.cpp.o
+[ 87%] Building CXX object CMakeFiles/test_real.dir/src/ff_esp.cpp.o
+[ 87%] Building CXX object CMakeFiles/test_real.dir/src/ff_stealth.cpp.o
+[ 25%] Building CXX object CMakeFiles/test_real.dir/src/ff_mem.cpp.o
+[100%] Linking CXX executable test_real
+[100%] Built target test_real
+=== real-data test arm64-v8a
+-- The CXX compiler identification is Clang 21.0.0
+-- Detecting CXX compiler ABI info
+-- Detecting CXX compiler ABI info - done
+-- Check for working CXX compiler: /usr/local/lib/android/sdk/ndk/29.0.13846066/toolchains/llvm/prebuilt/linux-x86_64/bin/clang++ - skipped
+-- Detecting CXX compile features
+-- Detecting CXX compile features - done
+-- Configuring done (0.1s)
+-- Generating done (0.0s)
+-- Build files have been written to: /home/runner/work/ff-ios/ff-ios/build-real-arm64-v8a
+[ 50%] Building CXX object CMakeFiles/test_real.dir/src/ff_math.cpp.o
+[ 25%] Building CXX object CMakeFiles/test_real.dir/src/ff_meta.cpp.o
+[ 62%] Building CXX object CMakeFiles/test_real.dir/test/test_real.cpp.o
+[ 87%] Building CXX object CMakeFiles/test_real.dir/src/ff_stealth.cpp.o
+[ 75%] Building CXX object CMakeFiles/test_real.dir/src/ff_esp.cpp.o
+[ 37%] Building CXX object CMakeFiles/test_real.dir/src/ff_scan.cpp.o
+[ 12%] Building CXX object CMakeFiles/test_real.dir/src/ff_mem.cpp.o
+[100%] Linking CXX executable test_real
+[100%] Built target test_real
+=== abi check
+  build-arm64-v8a/libffcheat.so: e_machine=183 want=183
+  build-armeabi-v7a/libffcheat.so: e_machine=40 want=40

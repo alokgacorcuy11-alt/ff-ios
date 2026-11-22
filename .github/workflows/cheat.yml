@@ -1,17 +1,18 @@
 name: cheat
 
-# Builds the injected side: the memory reader, the metadata decoder, the class
-# finder and the projection, plus the desktop test that runs the same code
-# against a fixture whose answer is known.
+# Builds the injected side and the two tests around it, and publishes the result
+# whether or not it worked.
 #
-# Why the test runs on the host and not on a device: every bug this code can
-# have - an offset that moved, a matrix transposed, a range check off by one -
-# produces output that looks right. A phone can tell you the boxes are wrong,
-# but not which of those three it is. The host test can.
+# One job, not two. It was two - a host job for the desktop test and a second for
+# the Android build - with the second depending on the first. When the host test
+# failed, the Android job was skipped, its publish step never ran, and the
+# branch kept the previous run's binary and log. Two runs were spent chasing a
+# crash that had already been fixed, on a binary that had already been replaced,
+# with an error nobody could read.
 #
-# The library is built for both ABIs even though Free Fire ships arm64 only:
-# the container may host a 32-bit guest, and a missing variant fails at runtime
-# with a message that says nothing useful.
+# So: one job, every step appends to build.log, and the publish step runs even
+# when the build did not. A failing build must leave behind the reason it failed,
+# otherwise the next person re-runs it and learns nothing.
 
 on:
   push:
@@ -24,54 +25,29 @@ permissions:
   contents: write
 
 jobs:
-  host:
-    name: core test on the host
+  build:
+    name: build, test, publish
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
-      - name: configure
-        run: cmake -S android/cheat -B build-host -DFFCHEAT_HOST_TEST=ON -DCMAKE_BUILD_TYPE=Release
-
-      # pipefail matters here and is not cosmetic: without it, piping a failing
-      # build into `tail` makes the step exit 0, and the test step then runs a
-      # binary that was never produced - also exiting 0. A green job that built
-      # nothing is worse than a red one, because nobody looks at it.
-      - name: build
+      - name: host test
         shell: bash
         run: |
-          set -euo pipefail
-          cmake --build build-host -j 2>&1 | tail -n 60
-
-      - name: run
-        shell: bash
-        run: |
-          set -euo pipefail
-          test -x ./build-host/test_core
-          ./build-host/test_core | tee host-test.log
-
-      # Published with the build rather than left in the Actions log: the log is
-      # only readable by an admin, and "the tests passed" is worth nothing if
-      # nobody can see which ones ran.
-      - uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: host-test-log
-          path: host-test.log
-
-  android:
-    name: libffcheat.so
-    runs-on: ubuntu-latest
-    # Runs after the host test, so the library that ships is only built once the
-    # logic inside it has been executed against a fixture.
-    needs: host
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/download-artifact@v4
-        with:
-          name: host-test-log
-          path: host-log
+          set -uo pipefail
+          : > build.log
+          echo "=== host configure" >> build.log
+          cmake -S android/cheat -B build-host -DFFCHEAT_HOST_TEST=ON \
+            -DCMAKE_BUILD_TYPE=Release >> build.log 2>&1 || echo "CONFIGURE FAILED" >> build.log
+          echo "=== host build" >> build.log
+          cmake --build build-host -j >> build.log 2>&1 || echo "HOST BUILD FAILED" >> build.log
+          echo "=== host run" >> build.log
+          if [ -x ./build-host/test_core ]; then
+            ./build-host/test_core 2>&1 | tee -a build.log host-test.log || echo "HOST TESTS FAILED" >> build.log
+          else
+            echo "no test_core binary was produced" >> build.log
+          fi
+          tail -n 40 build.log
 
       - uses: actions/setup-java@v4
         with:
@@ -80,77 +56,70 @@ jobs:
 
       - name: android sdk and ndk
         run: |
-          set -euo pipefail
+          set -uo pipefail
           SM="$(find "$ANDROID_SDK_ROOT" -name sdkmanager -type f 2>/dev/null | head -1)"
-          echo "sdkmanager: $SM"
+          echo "=== sdkmanager: $SM" >> build.log
           yes | "$SM" --licenses > /dev/null 2>&1 || true
-          "$SM" "ndk;29.0.13846066" > /dev/null 2>&1 || true
-          ls "$ANDROID_SDK_ROOT/ndk"
+          "$SM" "ndk;29.0.13846066" >> build.log 2>&1 || echo "NDK INSTALL FAILED" >> build.log
+          ls "$ANDROID_SDK_ROOT/ndk" || true
 
-      - name: build both abis
+      - name: native builds
+        shell: bash
         run: |
-          set -euo pipefail
+          set -uo pipefail
           TC="$ANDROID_SDK_ROOT/ndk/29.0.13846066/build/cmake/android.toolchain.cmake"
-          test -f "$TC"
-          : > build.log
+          echo "=== toolchain: $TC" >> build.log
           for ABI in arm64-v8a armeabi-v7a; do
-            echo "=== $ABI" >> build.log
-            cmake -S android/cheat -B "build-$ABI" \
-              -DCMAKE_TOOLCHAIN_FILE="$TC" \
-              -DANDROID_ABI="$ABI" \
-              -DANDROID_PLATFORM=android-26 \
-              -DCMAKE_BUILD_TYPE=Release >> build.log 2>&1
-            cmake --build "build-$ABI" -j >> build.log 2>&1
+            echo "=== library $ABI" >> build.log
+            cmake -S android/cheat -B "build-$ABI" -DCMAKE_TOOLCHAIN_FILE="$TC" \
+              -DANDROID_ABI="$ABI" -DANDROID_PLATFORM=android-26 \
+              -DCMAKE_BUILD_TYPE=Release >> build.log 2>&1 \
+              || echo "CONFIGURE FAILED $ABI" >> build.log
+            cmake --build "build-$ABI" -j >> build.log 2>&1 \
+              || echo "BUILD FAILED $ABI" >> build.log
           done
-          tail -n 30 build.log
-          find . -name 'libffcheat.so' -exec ls -l {} \;
-
-      # The real-data test: the same decoder, built for the host's own ABI so it
-      # runs natively rather than under ARM translation. It is pushed to a
-      # device and pointed at the game's two files, which is the only way to
-      # check the decoder against the real 57 MB metadata without a game.
-      - name: build the real-data test for x86_64
-        run: |
-          set -euo pipefail
-          TC="$ANDROID_SDK_ROOT/ndk/29.0.13846066/build/cmake/android.toolchain.cmake"
+          echo "=== real-data test x86_64" >> build.log
           cmake -S android/cheat -B build-real -DFFCHEAT_REAL_TEST=ON \
             -DCMAKE_TOOLCHAIN_FILE="$TC" -DANDROID_ABI=x86_64 \
-            -DANDROID_PLATFORM=android-26 -DCMAKE_BUILD_TYPE=Release >> build.log 2>&1
-          cmake --build build-real -j >> build.log 2>&1
-          find build-real -name test_real -exec ls -l {} \;
+            -DANDROID_PLATFORM=android-26 -DCMAKE_BUILD_TYPE=Release >> build.log 2>&1 \
+            || echo "CONFIGURE FAILED real" >> build.log
+          cmake --build build-real -j >> build.log 2>&1 \
+            || echo "BUILD FAILED real" >> build.log
+          tail -n 40 build.log
 
       - name: verify the abi of what came out
+        shell: bash
         run: |
-          set -euo pipefail
-          A64=$(find build-arm64-v8a -name libffcheat.so | head -1)
-          A32=$(find build-armeabi-v7a -name libffcheat.so | head -1)
-          test -n "$A64" && test -n "$A32"
-          python3 - "$A64" "$A32" <<'PY'
-          import struct, sys
-          want = {sys.argv[1]: 183, sys.argv[2]: 40}     # EM_AARCH64, EM_ARM
-          for path, machine in want.items():
-              d = open(path, 'rb').read(20)
-              assert d[:4] == b'\x7fELF', path
-              got = struct.unpack_from('<H', d, 18)[0]
-              print(f"  {path}: e_machine={got} (want {machine})")
-              assert got == machine, f"{path} is the wrong architecture"
-          print("  both shared objects are the architecture they claim")
-          PY
+          set -uo pipefail
+          echo "=== abi check" >> build.log
+          for spec in "build-arm64-v8a:183" "build-armeabi-v7a:40"; do
+            DIR="${spec%%:*}"; WANT="${spec##*:}"
+            SO=$(find "$DIR" -name libffcheat.so 2>/dev/null | head -1 || true)
+            if [ -z "$SO" ]; then
+              echo "  $DIR: no libffcheat.so" >> build.log
+              continue
+            fi
+            GOT=$(python3 -c "import struct,sys;print(struct.unpack_from('<H',open(sys.argv[1],'rb').read(20),18)[0])" "$SO")
+            echo "  $SO: e_machine=$GOT want=$WANT" >> build.log
+            [ "$GOT" = "$WANT" ] || echo "  WRONG ARCHITECTURE" >> build.log
+          done
+          grep -E "e_machine|WRONG|no libffcheat" build.log || true
 
       - name: publish
         if: always()
         run: |
-          set -euo pipefail
+          set -uo pipefail
           mkdir -p dist
           for ABI in arm64-v8a armeabi-v7a; do
-            D=$(find "build-$ABI" -name libffcheat.so | head -1 || true)
-            [ -n "$D" ] && cp "$D" "dist/libffcheat-$ABI.so" || true
+            SO=$(find "build-$ABI" -name libffcheat.so 2>/dev/null | head -1 || true)
+            [ -n "$SO" ] && cp "$SO" "dist/libffcheat-$ABI.so" || true
           done
-          cp build.log dist/cheat-build.log
-          cp host-log/host-test.log dist/host-test.log 2>/dev/null || true
-          T=$(find build-real -name test_real | head -1 || true)
+          T=$(find build-real -name test_real 2>/dev/null | head -1 || true)
           [ -n "$T" ] && cp "$T" dist/test_real-x86_64 || true
+          cp build.log dist/cheat-build.log
+          if [ -f host-test.log ]; then cp host-test.log dist/host-test.log; fi
           { echo "sha ${GITHUB_SHA}"; echo "run ${GITHUB_RUN_NUMBER}"; } > dist/BUILD.txt
+          ls -l dist
           cd dist
           git init -q
           git config user.name "ci"

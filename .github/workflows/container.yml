@@ -96,6 +96,9 @@ jobs:
           # The measurement the whole no-root approach rests on: can the
           # container read the memory of the guest it spawned, same uid?
           python3 container/patch_memory_probe.py base
+          # The stack overflow the crash patch made visible: the provider hook
+          # called the hooked PackageManager and re-entered itself.
+          python3 container/patch_provider_recursion.py base
 
       - uses: gradle/actions/setup-gradle@v3
         with:

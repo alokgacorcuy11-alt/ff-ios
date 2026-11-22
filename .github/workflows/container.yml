@@ -80,6 +80,12 @@ jobs:
           # the artifact is sitting in Google's repository. Google and Maven
           # Central first, mirrors kept below as fallbacks.
           python3 container/patch_repositories.py base
+          # Android 9 refuses access to hidden platform APIs. This container
+          # reaches into framework internals by design, so every reach is denied
+          # and an install reports success having written nothing. One exemption
+          # call in every process fixes all of them, including the ones not yet
+          # found.
+          python3 container/patch_hidden_api.py base
 
       - uses: gradle/actions/setup-gradle@v3
         with:

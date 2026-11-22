@@ -73,8 +73,20 @@ NEW = """            }
                             ? String.valueOf(args[0]) + " [" + args[0].getClass().getSimpleName() + "]"
                             : "none")
                     + ", appPkg = " + mAppPkg);
-            if (args != null && args.length > 0 && mAppPkg != null
-                    && mAppPkg.equals(args[0])) {
+            // The first argument of IContentProvider.call is the calling
+            // package, and the log from the A7 settled what the two values are:
+            //
+            //   call: first arg = com.dts.freefireth [String],
+            //         appPkg = com.onebitmonochrome.blacksbbox
+            //
+            // mAppPkg here is the host package, not the guest's, so comparing
+            // the argument against it never matched and the guest's package went
+            // to the system unchanged. Every call is made by this process, from
+            // this uid, so the name sent must be the one that belongs to this
+            // uid - the host package. That is what is set, unconditionally,
+            // because that is what this argument means in a call.
+            if (args != null && args.length > 0 && args[0] instanceof String
+                    && !BlackBoxCore.getHostPkg().equals(args[0])) {
                 args[0] = BlackBoxCore.getHostPkg();
             }
             return method.invoke(mBase, args);
@@ -95,7 +107,7 @@ def main() -> int:
     print(f"  target: {target}")
 
     text = target.read_text(encoding="utf-8")
-    if "call: first arg = " in text:
+    if "!BlackBoxCore.getHostPkg().equals(args[0])" in text:
         print("  [skip] already applied")
         return 0
 

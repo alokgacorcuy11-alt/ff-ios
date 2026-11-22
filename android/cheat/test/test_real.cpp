@@ -108,7 +108,28 @@ int main(int argc, char** argv) {
        meta_base == kMetaBase ? "" : "got " + std::to_string(meta_base));
 
     STAGE(4);
+    // The host test always passes il2cpp base 0, so it never exercises the
+    // registration lookup below. This is the first time that path runs on
+    // anything, and it is where the first device run died. Each step is printed
+    // before it is taken, so a crash names the line rather than the function.
     std::printf("stage 4: constructing the decoder\n");
+    const uintptr_t mr = kIl2cppBase + static_cast<uintptr_t>(
+            static_cast<uint32_t>(ff::kMetadataRegistrationRVA));
+    std::printf("  metadata base     %p\n", reinterpret_cast<const void*>(meta_base));
+    std::printf("  il2cpp base       %p\n", reinterpret_cast<const void*>(kIl2cppBase));
+    std::printf("  registration rva  %#lx\n",
+                static_cast<unsigned long>(ff::kMetadataRegistrationRVA));
+    std::printf("  registration at   %p\n", reinterpret_cast<const void*>(mr));
+    std::printf("  mapped bytes      %zu\n", mem.mapped_bytes());
+    std::printf("  contains(mr, 8)   %d\n", mem.contains(mr, 8) ? 1 : 0);
+    std::printf("  contains(+0x58)   %d\n", mem.contains(mr + 0x58, 8) ? 1 : 0);
+
+    uintptr_t probe = 0;
+    std::printf("  reading +0x58 ...\n");
+    const bool got = mem.get_ptr(mr + 0x58, probe);
+    std::printf("  got=%d value=%p\n", got ? 1 : 0, reinterpret_cast<const void*>(probe));
+
+    std::printf("  constructing Meta ...\n");
     ff::Meta meta(mem, ff::kLayoutFF132, meta_base, kIl2cppBase);
     std::printf("stage 5: decoder built, types=%d offsets=%d\n",
                 meta.type_count(), meta.offsets_ready() ? 1 : 0);

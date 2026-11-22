@@ -1,0 +1,123 @@
+name: cheat
+
+# Builds the injected side: the memory reader, the metadata decoder, the class
+# finder and the projection, plus the desktop test that runs the same code
+# against a fixture whose answer is known.
+#
+# Why the test runs on the host and not on a device: every bug this code can
+# have - an offset that moved, a matrix transposed, a range check off by one -
+# produces output that looks right. A phone can tell you the boxes are wrong,
+# but not which of those three it is. The host test can.
+#
+# The library is built for both ABIs even though Free Fire ships arm64 only:
+# the container may host a 32-bit guest, and a missing variant fails at runtime
+# with a message that says nothing useful.
+
+on:
+  push:
+    paths:
+      - "android/cheat/**"
+      - ".github/workflows/cheat.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  host:
+    name: core test on the host
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: configure
+        run: cmake -S android/cheat -B build-host -DFFCHEAT_HOST_TEST=ON -DCMAKE_BUILD_TYPE=Release
+
+      - name: build
+        run: cmake --build build-host -j --verbose 2>&1 | tail -n 60
+
+      - name: run
+        run: ./build-host/test_core | tee host-test.log
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: host-test-log
+          path: host-test.log
+
+  android:
+    name: libffcheat.so
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - name: android sdk and ndk
+        run: |
+          set -euo pipefail
+          SM="$(find "$ANDROID_SDK_ROOT" -name sdkmanager -type f 2>/dev/null | head -1)"
+          echo "sdkmanager: $SM"
+          yes | "$SM" --licenses > /dev/null 2>&1 || true
+          "$SM" "ndk;29.0.13846066" > /dev/null 2>&1 || true
+          ls "$ANDROID_SDK_ROOT/ndk"
+
+      - name: build both abis
+        run: |
+          set -euo pipefail
+          TC="$ANDROID_SDK_ROOT/ndk/29.0.13846066/build/cmake/android.toolchain.cmake"
+          test -f "$TC"
+          : > build.log
+          for ABI in arm64-v8a armeabi-v7a; do
+            echo "=== $ABI" >> build.log
+            cmake -S android/cheat -B "build-$ABI" \
+              -DCMAKE_TOOLCHAIN_FILE="$TC" \
+              -DANDROID_ABI="$ABI" \
+              -DANDROID_PLATFORM=android-26 \
+              -DCMAKE_BUILD_TYPE=Release >> build.log 2>&1
+            cmake --build "build-$ABI" -j >> build.log 2>&1
+          done
+          tail -n 30 build.log
+          find . -name 'libffcheat.so' -exec ls -l {} \;
+
+      - name: verify the abi of what came out
+        run: |
+          set -euo pipefail
+          A64=$(find build-arm64-v8a -name libffcheat.so | head -1)
+          A32=$(find build-armeabi-v7a -name libffcheat.so | head -1)
+          test -n "$A64" && test -n "$A32"
+          python3 - "$A64" "$A32" <<'PY'
+          import struct, sys
+          want = {sys.argv[1]: 183, sys.argv[2]: 40}     # EM_AARCH64, EM_ARM
+          for path, machine in want.items():
+              d = open(path, 'rb').read(20)
+              assert d[:4] == b'\x7fELF', path
+              got = struct.unpack_from('<H', d, 18)[0]
+              print(f"  {path}: e_machine={got} (want {machine})")
+              assert got == machine, f"{path} is the wrong architecture"
+          print("  both shared objects are the architecture they claim")
+          PY
+
+      - name: publish
+        if: always()
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          for ABI in arm64-v8a armeabi-v7a; do
+            D=$(find "build-$ABI" -name libffcheat.so | head -1 || true)
+            [ -n "$D" ] && cp "$D" "dist/libffcheat-$ABI.so" || true
+          done
+          cp build.log dist/cheat-build.log
+          { echo "sha ${GITHUB_SHA}"; echo "run ${GITHUB_RUN_NUMBER}"; } > dist/BUILD.txt
+          cd dist
+          git init -q
+          git config user.name "ci"
+          git config user.email "ci@local"
+          git add -A
+          git commit -q -m "cheat: $(date -u +%Y%m%d-%H%M%S) ${GITHUB_SHA:0:7}"
+          git push -f "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" HEAD:cheat
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

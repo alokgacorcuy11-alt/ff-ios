@@ -213,6 +213,7 @@ bool MappedMemory::add_file(const char* path, uintptr_t pretend_base) {
 }
 
 bool MappedMemory::add_elf(const char* path, uintptr_t pretend_base) {
+    const size_t before = regions_.size();
     uintptr_t raw = 0;
     size_t size = 0;
     if (!map_raw(path, raw, size)) {
@@ -231,7 +232,10 @@ bool MappedMemory::add_elf(const char* path, uintptr_t pretend_base) {
     uint16_t phnum = 0;
     std::memcpy(&phoff, file + 0x20, 8);
     std::memcpy(&phentsize, file + 0x36, 2);
-    std::memcpy(&phnum, file + 0x3A, 2);
+    // 0x38, not 0x3A. 0x3A is e_shentsize - the *section* header entry size -
+    // and reading it as a count gives zero, so the loop below never runs and the
+    // map comes back empty. The host test caught it; nothing else would have.
+    std::memcpy(&phnum, file + 0x38, 2);
     if (phoff == 0 || phentsize < 56) {
         return false;
     }
@@ -263,7 +267,7 @@ bool MappedMemory::add_elf(const char* path, uintptr_t pretend_base) {
         regions_.push_back(r);
         ranges_.push_back(r.range);
     }
-    return !regions_.empty();
+    return regions_.size() > before;
 }
 
 bool MappedMemory::read(uintptr_t addr, void* out, size_t n) const {

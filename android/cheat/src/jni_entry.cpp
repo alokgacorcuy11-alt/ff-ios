@@ -16,6 +16,7 @@
 
 #include "ff_mem.h"
 #include "ff_meta.h"
+#include "ff_offsets.h"
 #include "ff_scan.h"
 #include "ff_stealth.h"
 

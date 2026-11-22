@@ -269,6 +269,12 @@ elif mode == "--emit":
             nm = fnames[fstart[k] + j][0]
             if want and nm not in want:
                 continue
+            # Only names that are valid C++ identifiers. A field called
+            # `<MEFIKBFHNPF>k__BackingField` is a compiler-generated backing
+            # field: it cannot be an identifier, and it is not something a
+            # feature would ever read.
+            if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", nm):
+                continue
             off = u32(ptr + j * 4) if ptr and fo(ptr) else None
             if off is None or off == 0:
                 continue

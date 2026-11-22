@@ -184,7 +184,7 @@ static void test_two_regions() {
           "the last byte of the second region is still the second region");
     check(!mem.read(0x9040, &v, 1), "past the end of the second region is refused");
     check(!mem.read(0x5000, &v, 1), "the gap between them is refused");
-    check(!mem.read(0x9040 - 63, &v, 32), "a read that straddles the end is refused");
+    check(!mem.read(0x9030, &v, 32), "a read that straddles the end is refused");
 }
 
 static void test_memory() {

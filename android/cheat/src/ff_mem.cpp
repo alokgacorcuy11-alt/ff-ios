@@ -100,28 +100,42 @@ bool LiveMemory::read(uintptr_t addr, void* out, size_t n) const {
     return true;
 }
 
-BlobMemory::BlobMemory(std::vector<uint8_t> bytes, uintptr_t base)
-        : bytes_(std::move(bytes)), base_(base) {
+BlobMemory::BlobMemory(std::vector<uint8_t> bytes, uintptr_t base) {
+    add_segment(std::move(bytes), base);
+}
+
+void BlobMemory::add_segment(std::vector<uint8_t> bytes, uintptr_t base) {
+    if (segments_.empty()) {
+        base_ = base;
+    }
     Range r;
-    r.begin = base_;
-    r.end = base_ + bytes_.size();
+    r.begin = base;
+    r.end = base + bytes.size();
     r.writable = false;
     ranges_.push_back(r);
+
+    Segment seg;
+    seg.bytes = std::move(bytes);
+    segments_.push_back(std::move(seg));
 }
 
 bool BlobMemory::read(uintptr_t addr, void* out, size_t n) const {
     if (out == nullptr || n == 0) {
         return false;
     }
-    if (addr < base_) {
-        return false;
+    for (size_t i = 0; i < segments_.size(); ++i) {
+        // One rule, in one place. The first version of this repeated the
+        // containment test inline, and the repeat did not get the fix that the
+        // shared one did - which is what made a two-region read walk past the
+        // end of the first region and die.
+        const Range& r = ranges_[i];
+        if (!r.contains(addr, n)) {
+            continue;
+        }
+        std::memcpy(out, segments_[i].bytes.data() + (addr - r.begin), n);
+        return true;
     }
-    const uintptr_t off = addr - base_;
-    if (off + n > bytes_.size()) {
-        return false;
-    }
-    std::memcpy(out, bytes_.data() + off, n);
-    return true;
+    return false;
 }
 
 uintptr_t find_pattern(const Memory& mem, uintptr_t begin, uintptr_t end,
@@ -154,7 +168,7 @@ uintptr_t find_pattern(const Memory& mem, uintptr_t begin, uintptr_t end,
 MappedMemory::~MappedMemory() {
     for (const Region& r : regions_) {
         if (r.data != nullptr) {
-            ::munmap(const_cast<uint8_t*>(r.data), r.end - r.begin);
+            ::munmap(const_cast<uint8_t*>(r.data), r.range.end - r.range.begin);
         }
     }
 }
@@ -176,16 +190,12 @@ bool MappedMemory::add_file(const char* path, uintptr_t pretend_base) {
         return false;
     }
     Region r;
-    r.begin = pretend_base;
-    r.end = pretend_base + size;
+    r.range.begin = pretend_base;
+    r.range.end = pretend_base + size;
+    r.range.writable = false;
     r.data = static_cast<const uint8_t*>(p);
     regions_.push_back(r);
-
-    Range range;
-    range.begin = r.begin;
-    range.end = r.end;
-    range.writable = false;
-    ranges_.push_back(range);
+    ranges_.push_back(r.range);
 
     mapped_ += size;
     return true;
@@ -196,10 +206,11 @@ bool MappedMemory::read(uintptr_t addr, void* out, size_t n) const {
         return false;
     }
     for (const Region& r : regions_) {
-        if (addr >= r.begin && n <= r.end - addr) {
-            std::memcpy(out, r.data + (addr - r.begin), n);
-            return true;
+        if (!r.range.contains(addr, n)) {
+            continue;
         }
+        std::memcpy(out, r.data + (addr - r.range.begin), n);
+        return true;
     }
     return false;
 }

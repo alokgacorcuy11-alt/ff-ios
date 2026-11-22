@@ -96,9 +96,16 @@ private:
 
 // A byte image held in memory, so the same code that reads the game can be run
 // against a fixture whose correct answer is known in advance.
+//
+// It takes more than one segment on purpose. A single segment never exercises
+// the case where a read has to pick the right region out of several, and that
+// case is where this whole class of bug lives.
 class BlobMemory final : public Memory {
 public:
+    BlobMemory() = default;
     BlobMemory(std::vector<uint8_t> bytes, uintptr_t base);
+
+    void add_segment(std::vector<uint8_t> bytes, uintptr_t base);
 
     bool read(uintptr_t addr, void* out, size_t n) const override;
     const std::vector<Range>& ranges() const override { return ranges_; }
@@ -106,9 +113,12 @@ public:
     uintptr_t base() const { return base_; }
 
 private:
-    std::vector<uint8_t> bytes_;
+    struct Segment {
+        std::vector<uint8_t> bytes;
+    };
+    std::vector<Segment> segments_;
     std::vector<Range> ranges_;
-    uintptr_t base_;
+    uintptr_t base_ = 0;
 };
 
 // Scans a memory image for a byte pattern, returning the first address.
@@ -138,9 +148,11 @@ public:
     size_t mapped_bytes() const { return mapped_; }
 
 private:
+    // The region and its bytes are kept in one struct, so the containment rule
+    // has exactly one definition - Range::contains - and cannot drift into a
+    // second copy inside read().
     struct Region {
-        uintptr_t begin;
-        uintptr_t end;
+        Range range;
         const uint8_t* data;
     };
     std::vector<Region> regions_;

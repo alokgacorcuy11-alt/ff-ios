@@ -160,6 +160,33 @@ static void test_range() {
           "an address near the top of the space is refused too");
 }
 
+// The regression test for the failure that cost two device round trips.
+//
+// Two regions. A read aimed at the second must be served by the second. The
+// first version of the guard accepted any address above a region's start, so
+// the first region served it from an offset far past its end - and on a device,
+// with a 57 MB region and a read 8 GB past its end, that is a segfault.
+//
+// The host test had one region, so it could never have caught this.
+static void test_two_regions() {
+    std::vector<uint8_t> low(64, 0xAA);
+    std::vector<uint8_t> high(64, 0xBB);
+
+    ff::BlobMemory mem;
+    mem.add_segment(low, 0x1000);
+    mem.add_segment(high, 0x9000);
+
+    uint8_t v = 0;
+    check(mem.read(0x1000, &v, 1) && v == 0xAA, "a read in the first region is served by it");
+    check(mem.read(0x9000, &v, 1) && v == 0xBB,
+          "a read in the second region is served by the second, not by the first");
+    check(mem.read(0x9000 + 63, &v, 1) && v == 0xBB,
+          "the last byte of the second region is still the second region");
+    check(!mem.read(0x9040, &v, 1), "past the end of the second region is refused");
+    check(!mem.read(0x5000, &v, 1), "the gap between them is refused");
+    check(!mem.read(0x9040 - 63, &v, 32), "a read that straddles the end is refused");
+}
+
 static void test_memory() {
     std::vector<uint8_t> bytes = {'h', 'i', 0, 'x'};
     ff::BlobMemory mem(bytes, kBase);
@@ -294,6 +321,7 @@ int main() {
     std::printf(" ffcheat core (host, no android)\n");
     std::printf("================================================\n");
     test_range();
+    test_two_regions();
     test_memory();
     test_metadata();
     test_math();

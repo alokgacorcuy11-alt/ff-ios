@@ -75,6 +75,11 @@ jobs:
           # thrown from a constructor on the install path - so the install reports
           # success, writes no package record, and the app never appears.
           python3 container/patch_package_signing.py base
+          # The base lists five Aliyun mirrors before google(). Gradle asks them
+          # in order, so a 502 from one of them fails the whole build even though
+          # the artifact is sitting in Google's repository. Google and Maven
+          # Central first, mirrors kept below as fallbacks.
+          python3 container/patch_repositories.py base
 
       - uses: gradle/actions/setup-gradle@v3
         with:

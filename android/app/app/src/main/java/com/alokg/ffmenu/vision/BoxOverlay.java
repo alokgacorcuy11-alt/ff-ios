@@ -7,8 +7,6 @@ import android.graphics.PixelFormat;
 import android.view.View;
 import android.view.WindowManager;
 
-import java.util.List;
-
 /**
  * Draws the boxes the detector found, over the game.
  *
@@ -16,6 +14,11 @@ import java.util.List;
  * covers the whole screen and takes no touches, while the panel is small and
  * draggable. Both are ordinary overlay windows, which means both are gone the
  * moment the app is uninstalled.
+ *
+ * <p>Coordinates arrive already in screen space. The capture runs at whatever
+ * size the phone's profile chose, so mapping capture pixels to screen pixels is
+ * the caller's job - one multiply - and this class never has to know the two
+ * differ.
  */
 public final class BoxOverlay {
 
@@ -49,16 +52,31 @@ public final class BoxOverlay {
         }
     }
 
-    public void update(List<Detector.Blob> blobs) {
-        int[] boxes = new int[blobs.size() * 4];
-        int i = 0;
-        for (Detector.Blob b : blobs) {
-            boxes[i++] = b.x;
-            boxes[i++] = b.y;
-            boxes[i++] = b.x + b.w;
-            boxes[i++] = b.y + b.h;
+    /**
+     * Follows the display when it rotates.
+     *
+     * <p>The game is landscape and the app is portrait, so this happens on the
+     * first second of every session. A window left at the old size draws every
+     * box in the wrong place, which looks exactly like a broken detector.
+     */
+    public void resize(int screenW, int screenH) {
+        if (lp.width == screenW && lp.height == screenH) {
+            return;
         }
-        view.set(boxes);
+        lp.width = screenW;
+        lp.height = screenH;
+        if (!attached) {
+            return;
+        }
+        try {
+            wm.updateViewLayout(view, lp);
+        } catch (RuntimeException ignored) {
+        }
+    }
+
+    /** @param xyxy flat {left, top, right, bottom} per box, in screen pixels. */
+    public void updateRects(int[] xyxy) {
+        view.set(xyxy);
     }
 
     public void clear() {

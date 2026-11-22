@@ -98,25 +98,41 @@ def main() -> int:
           "every button clears the ~88dp style minimum width")
     check("btn.setTextSize(12)" in java, "and uses one text size, set in one place")
 
-    # ---- 5. nothing on the screen is a leftover from the research build --
+    # ---- 5. what is declared, and how narrowly --------------------------
     #
-    # These are not layout rules, they are install rules: an accessibility
-    # service plus screen capture is what made Play Protect refuse the APK
-    # outright. A screen that only has the three buttons a buyer uses cannot
-    # drift back into declaring them.
+    # This screen used to carry nothing that an installer would weigh: no
+    # capture, no touch. It now carries both, because a detector that can see
+    # and cannot act is not the product. What must not drift is how much each
+    # declaration is allowed to do - so the accessibility service is pinned
+    # here to gestures-only, and the permission list to exactly the six whose
+    # caller is named in the manifest.
     for gone in ("rootTools", "toggleRootTools", "AimService", "Root.", "MemClient"):
         check(gone not in java, f"the buyer screen carries no {gone}")
-    check("BIND_ACCESSIBILITY_SERVICE" not in xml and "AccessibilityService" not in xml,
-          "the manifest declares no accessibility service")
+    check('android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE"' in xml,
+          "the touch service can only be bound by the system")
+    config = SRC / "res" / "xml" / "touch_service.xml"
+    check(config.is_file(), "the touch service has a config the user can read")
+    if config.is_file():
+        touch = config.read_text(encoding="utf-8")
+        check('android:canPerformGestures="true"' in touch,
+              "it can put a gesture on the screen")
+        check('android:canRetrieveWindowContent="false"' in touch,
+              "and cannot read the content of any window")
+        check('android:description="@string/touch_desc"' in touch,
+              "and says so in the list the user reads before enabling it")
     wanted = {
         "android.permission.SYSTEM_ALERT_WINDOW",
         "android.permission.INTERNET",
         "android.permission.FOREGROUND_SERVICE",
         "android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION",
+        "android.permission.POST_NOTIFICATIONS",
+        "android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS",
     }
     declared = set(re.findall(r'android:name="(android\.permission\.[A-Z_]+)"', xml))
-    check(declared == wanted, "the permission set is exactly the four that have a caller",
+    check(declared == wanted, "the permission set is exactly the six that have a caller",
           str(sorted(declared ^ wanted)) if declared != wanted else str(len(declared)))
+    check("<package android:name=\"com.dts.freefireth\" />" in xml,
+          "only the game is named in queries, not every installed package")
 
     # ---- 6. the keyboard resizes instead of panning ----------------------
     check('android:windowSoftInputMode="adjustResize"' in xml,
@@ -124,11 +140,11 @@ def main() -> int:
 
     # ---- 7. labels stay short enough to fit three across ----------------
     labels = {n: t for n, t in LABEL.findall(java) if n in {
-        "toggle", "mirror", "esp", "activate", "diag"}}
-    check(len(labels) == 5, f"all {len(labels)} fixed labels found", str(sorted(labels)))
+        "toggle", "mirror", "esp", "activate", "diag", "setup"}}
+    check(len(labels) == 6, f"all {len(labels)} fixed labels found", str(sorted(labels)))
     # autoclean's label is not a literal: it says which state the setting is in,
     # so it is checked for membership in the one styling loop instead.
-    check("new Button[]{toggle, mirror, esp, activate, autoclean, diag}" in java,
+    check("new Button[]{toggle, mirror, esp, activate, autoclean, diag, setup}" in java,
           "and every switch is styled in the same one place")
     long_ones = {n: t for n, t in labels.items() if len(t) > 12}
     check(not long_ones, "no button label is too long to fit a third of the width",

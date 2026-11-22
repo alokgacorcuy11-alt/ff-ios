@@ -1,35 +1,66 @@
 package com.alokg.ffmenu.vision;
 
+import android.graphics.Path;
+
 /**
- * The touch half of the vision path - absent from this build on purpose.
+ * Synthetic touch: a swipe to lean the crosshair, a tap to fire.
  *
- * <p>Moving the crosshair means putting a synthetic swipe into another app, and
- * on Android the only door to that is an accessibility service. It works, but
- * declaring one is the strongest "this is malware" signal an installer sees,
- * and it is exactly what made Play Protect refuse this APK outright. So the
- * boxes ship and the touch does not: capture, detector and overlay are each
- * useful without it.
+ * <p>Both go through {@link TouchService}, which the user enables once. When it
+ * is not enabled every call returns false and the caller carries on without
+ * aim - the boxes do not depend on this and must not stop working because a
+ * permission was not given.
  *
- * <p>What would implement this: a class extending AccessibilityService, a
- * BIND_ACCESSIBILITY_SERVICE declaration in the manifest, and a README that
- * says out loud it costs an install warning. The shape is kept here so that
- * swap is one file rather than a redesign.
+ * <p>The service reference is checked on every call rather than cached at
+ * startup: the system can unbind the service at any moment (another
+ * accessibility service takes over, the user toggles it off), and a cached
+ * reference would then dispatch into a dead object.
  */
 public final class Touch {
+
+    /** Shortest gesture Android accepts as a move rather than a tap. */
+    private static final int MIN_MS = 16;
 
     private Touch() {
     }
 
-    /** False: there is no touch service in this build, and callers say so. */
+    /** True when the user has enabled the service and the system has bound it. */
     public static boolean ready() {
-        return false;
+        return TouchService.live() != null;
     }
 
     /**
-     * @return false, always. The caller treats that as "no aim assist", which is
-     *     a state the panel reports, not an error it raises.
+     * Drags from one point to another.
+     *
+     * @param ms how long the gesture takes. Short values move the camera a lot
+     *     per frame and look like a snap; long values are smooth and slow.
+     * @return false when there is no service, or the system dropped the gesture.
      */
     public static boolean swipe(int fromX, int fromY, int toX, int toY, int ms) {
-        return false;
+        TouchService s = TouchService.live();
+        if (s == null) {
+            return false;
+        }
+        Path p = new Path();
+        p.moveTo(fromX, fromY);
+        p.lineTo(toX, toY);
+        return s.send(p, 0, Math.max(MIN_MS, ms));
+    }
+
+    /**
+     * A tap at a point - the trigger for auto-fire.
+     *
+     * <p>A path of two points a pixel apart, not {@code Path.moveTo} alone:
+     * a zero-length stroke is a tap on some ROMs and a no-op on others, and the
+     * one-pixel line is a tap everywhere.
+     */
+    public static boolean tap(int x, int y, int ms) {
+        TouchService s = TouchService.live();
+        if (s == null) {
+            return false;
+        }
+        Path p = new Path();
+        p.moveTo(x, y);
+        p.lineTo(x + 1, y);
+        return s.send(p, 0, Math.max(MIN_MS, ms));
     }
 }

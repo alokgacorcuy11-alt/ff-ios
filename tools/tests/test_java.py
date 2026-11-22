@@ -55,6 +55,14 @@ SOURCES = [
     "com/alokg/ffmenu/vision/BoxOverlay.java",
     "com/alokg/ffmenu/vision/Detector.java",
     "com/alokg/ffmenu/vision/Touch.java",
+    "com/alokg/ffmenu/vision/TouchService.java",
+    # the compatibility engine: which profile this phone gets, and which vendor
+    # screens it needs before a background capture survives a match
+    "com/alokg/ffmenu/device/Tier.java",
+    "com/alokg/ffmenu/device/Plan.java",
+    "com/alokg/ffmenu/device/DeviceProfile.java",
+    "com/alokg/ffmenu/device/Setup.java",
+    "com/alokg/ffmenu/device/SetupActivity.java",
 ]
 
 # Every stub member below exists in the real API with the same signature. If a
@@ -66,7 +74,14 @@ public class Context {
     public static final String NOTIFICATION_SERVICE = "notification";
     public static final String WINDOW_SERVICE = "window";
     public static final String MEDIA_PROJECTION_SERVICE = "media_projection";
+    public static final String POWER_SERVICE = "power";
+    public static final String ACCESSIBILITY_SERVICE = "accessibility";
+    public static final String ACTIVITY_SERVICE = "activity";
     public Object getSystemService(String name) { return null; }
+    public String getPackageName() { return ""; }
+    public android.content.pm.PackageManager getPackageManager() { return null; }
+    public int checkSelfPermission(String p) { return 0; }
+    public void startActivity(android.content.Intent i) {}
     public android.content.Context getApplicationContext() { return null; }
     public android.content.ContentResolver getContentResolver() { return null; }
     public android.content.res.AssetManager getAssets() { return null; }
@@ -81,6 +96,15 @@ public final class Settings {
             "android.settings.action.MANAGE_OVERLAY_PERMISSION";
     public static final String ACTION_ACCESSIBILITY_SETTINGS =
             "android.settings.ACCESSIBILITY_SETTINGS";
+    public static final String ACTION_APP_NOTIFICATION_SETTINGS =
+            "android.settings.APP_NOTIFICATION_SETTINGS";
+    public static final String ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS =
+            "android.settings.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS";
+    public static final String ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS =
+            "android.settings.IGNORE_BATTERY_OPTIMIZATION_SETTINGS";
+    public static final String ACTION_APPLICATION_DETAILS_SETTINGS =
+            "android.settings.APPLICATION_DETAILS_SETTINGS";
+    public static final String EXTRA_APP_PACKAGE = "android.provider.extra.APP_PACKAGE";
     public static boolean canDrawOverlays(android.content.Context c) { return true; }
     public static final class Secure {
         public static final String ANDROID_ID = "android_id";
@@ -211,6 +235,7 @@ public class MotionEvent {
     "android/view/WindowManager.java": """
 package android.view;
 public interface WindowManager {
+    android.view.Display getDefaultDisplay();
     void addView(android.view.View v, LayoutParams p);
     void updateViewLayout(android.view.View v, LayoutParams p);
     void removeView(android.view.View v);
@@ -223,6 +248,8 @@ public interface WindowManager {
         public static final int FLAG_LAYOUT_IN_SCREEN = 256;
         public static final int FLAG_LAYOUT_NO_LIMITS = 512;
         public int gravity;
+        public int width;
+        public int height;
         public int x;
         public int y;
         public LayoutParams(int w, int h, int type, int flags, int format) {}
@@ -236,9 +263,12 @@ public class Intent {
     public static final int FLAG_GRANT_READ_URI_PERMISSION = 1;
     public static final int FLAG_GRANT_WRITE_URI_PERMISSION = 2;
     public static final int FLAG_GRANT_PERSISTABLE_URI_PERMISSION = 64;
+    public static final int FLAG_ACTIVITY_NEW_TASK = 0x10000000;
     public Intent() {}
     public Intent(String action) {}
+    public Intent(String action, android.net.Uri uri) {}
     public Intent(Context c, Class<?> cls) {}
+    public Intent setComponent(ComponentName c) { return this; }
     public Intent addFlags(int flags) { return this; }
     public Intent putExtra(String k, int v) { return this; }
     public Intent putExtra(String k, String v) { return this; }
@@ -288,6 +318,7 @@ public class Service extends android.content.Context {
     public int onStartCommand(android.content.Intent i, int flags, int startId) { return 0; }
     public void onDestroy() {}
     public android.os.IBinder onBind(android.content.Intent i) { return null; }
+    public void onConfigurationChanged(android.content.res.Configuration c) {}
     public void startForeground(int id, Notification n) {}
     public void stopSelf() {}
     public void stopSelf(int startId) {}
@@ -360,6 +391,7 @@ public abstract class AccessibilityService extends android.content.Context {
     protected void onServiceConnected() {}
     public void onAccessibilityEvent(android.view.accessibility.AccessibilityEvent e) {}
     public void onInterrupt() {}
+    public boolean onUnbind(android.content.Intent i) { return false; }
     public void onDestroy() {}
     public boolean dispatchGesture(GestureDescription g,
             GestureResultCallback c, android.os.Handler h) { return true; }
@@ -445,6 +477,8 @@ public class Activity extends android.content.Context {
     public static final int RESULT_OK = -1;
     public static final int RESULT_CANCELED = 0;
     protected void onCreate(android.os.Bundle b) {}
+    protected void onResume() {}
+    protected void onPause() {}
     protected void onDestroy() {}
     protected void onActivityResult(int req, int res, android.content.Intent data) {}
     public void setContentView(android.view.View v) {}
@@ -452,6 +486,7 @@ public class Activity extends android.content.Context {
     public void startForegroundService(android.content.Intent i) {}
     public void startActivity(android.content.Intent i) {}
     public void startActivityForResult(android.content.Intent i, int req) {}
+    public void finish() {}
     public boolean stopService(android.content.Intent i) { return true; }
     public android.content.pm.ApplicationInfo getApplicationInfo() { return null; }
     public java.io.File getFilesDir() { return null; }
@@ -462,7 +497,7 @@ public class Activity extends android.content.Context {
 """,
     "android/content/pm/ApplicationInfo.java": """
 package android.content.pm;
-public class ApplicationInfo { public int uid; }
+public class ApplicationInfo { public int uid; public int targetSdkVersion; }
 """,
     "android/content/res/AssetManager.java": """
 package android.content.res;
@@ -614,6 +649,82 @@ public class LocalSocketAddress {
     public LocalSocketAddress(String name, Namespace ns) {}
 }
 """,
+    # --- the compatibility engine's window into the phone ---------------------
+    "android/os/Build.java": """
+package android.os;
+public class Build {
+    public static final String MANUFACTURER = "unknown";
+    public static final String MODEL = "unknown";
+    public static final class VERSION {
+        public static final String RELEASE = "0";
+        public static final int SDK_INT = 0;
+    }
+}
+""",
+    "android/app/ActivityManager.java": """
+package android.app;
+public class ActivityManager {
+    public static class MemoryInfo {
+        public long totalMem;
+        public long availMem;
+        public boolean lowMemory;
+    }
+    public void getMemoryInfo(MemoryInfo out) {}
+}
+""",
+    "android/os/PowerManager.java": """
+package android.os;
+public class PowerManager {
+    public boolean isIgnoringBatteryOptimizations(String pkg) { return false; }
+}
+""",
+    "android/content/pm/PackageInfo.java": """
+package android.content.pm;
+public class PackageInfo {
+    public String versionName;
+    public int versionCode;
+    public ApplicationInfo applicationInfo;
+}
+""",
+    "android/content/pm/PackageManager.java": """
+package android.content.pm;
+public class PackageManager {
+    public static final int PERMISSION_GRANTED = 0;
+    public static final int PERMISSION_DENIED = -1;
+    public PackageInfo getPackageInfo(String pkg, int flags)
+            throws NameNotFoundException { return null; }
+    public static class NameNotFoundException extends Exception {}
+}
+""",
+    "android/accessibilityservice/AccessibilityServiceInfo.java": """
+package android.accessibilityservice;
+public class AccessibilityServiceInfo {
+    public static final int FEEDBACK_ALL_MASK = -1;
+    public String getId() { return ""; }
+}
+""",
+    "android/view/accessibility/AccessibilityManager.java": """
+package android.view.accessibility;
+public class AccessibilityManager {
+    public java.util.List<android.accessibilityservice.AccessibilityServiceInfo>
+            getEnabledAccessibilityServiceList(int feedbackType) {
+        return new java.util.ArrayList<>();
+    }
+}
+""",
+    "android/content/res/Configuration.java": """
+package android.content.res;
+public class Configuration {
+    public int orientation;
+}
+""",
+    "android/view/Display.java": """
+package android.view;
+public class Display {
+    public void getRealMetrics(android.util.DisplayMetrics m) {}
+    public int getRotation() { return 0; }
+}
+""",
     "org/json/JSONException.java": """
 package org.json;
 public class JSONException extends Exception {
@@ -690,9 +801,20 @@ def main() -> int:
          "-d", str(out)] + files,
         capture_output=True, text=True)
 
-    errors = [ln for ln in (r.stderr or "").splitlines() if ": error:" in ln]
-    for ln in errors[:20]:
+    lines = (r.stderr or "").splitlines()
+    shown = 0
+    for i, ln in enumerate(lines):
+        if ": error:" not in ln:
+            continue
+        if shown >= 12:
+            break
+        shown += 1
         print(f"[FAIL] {ln}")
+        # javac puts the symbol and the caret on the following lines; without
+        # them the message only says a name is missing, not which one.
+        for extra in lines[i + 1:i + 4]:
+            if extra.strip():
+                print(f"       {extra.strip()}")
     print(f"[{'ok  ' if r.returncode == 0 else 'FAIL'}] "
           f"{total} sources compile against the stubs")
     if r.returncode == 0:

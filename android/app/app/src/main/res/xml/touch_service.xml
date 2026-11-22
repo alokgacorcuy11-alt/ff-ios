@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  What the touch service is allowed to do, declared to the system rather than
+  promised in a dialog.
+
+    canPerformGestures      true  - it can put a gesture on the screen
+    canRetrieveWindowContent false - it never sees the view tree, so it cannot
+                                     read text from any app, including this one
+    accessibilityEventTypes one event type, which it ignores anyway
+
+  The narrower this is, the less the system has to trust the app - and the
+  description is what the user reads in Settings before enabling it.
+-->
+<accessibility-service xmlns:android="http://schemas.android.com/apk/res/android"
+    android:accessibilityEventTypes="typeWindowStateChanged"
+    android:accessibilityFeedbackType="feedbackGeneric"
+    android:accessibilityFlags="flagDefault"
+    android:canPerformGestures="true"
+    android:canRetrieveWindowContent="false"
+    android:description="@string/touch_desc"
+    android:notificationTimeout="100" />

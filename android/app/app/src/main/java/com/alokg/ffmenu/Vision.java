@@ -5,12 +5,13 @@ import android.content.Context;
 import android.content.Intent;
 import android.media.projection.MediaProjection;
 import android.media.projection.MediaProjectionManager;
-import android.util.DisplayMetrics;
 
-import com.alokg.ffmenu.vision.Touch;
+import com.alokg.ffmenu.device.DeviceProfile;
+import com.alokg.ffmenu.device.Tier;
 import com.alokg.ffmenu.vision.BoxOverlay;
 import com.alokg.ffmenu.vision.Capture;
 import com.alokg.ffmenu.vision.Detector;
+import com.alokg.ffmenu.vision.Touch;
 
 import java.util.List;
 
@@ -29,28 +30,48 @@ import java.util.List;
  * altered. The tells are the system's own: a screen-capture session and an
  * accessibility service, both visible in Settings and both revoked by
  * uninstalling this app.
+ *
+ * <p>Everything about size and rate comes from {@link Tier}, which measured the
+ * phone. This class has no opinion about how fast it should run; a phone that
+ * cannot keep up gets a smaller capture, not a stutter.
  */
 final class Vision {
 
     private static Vision live;
 
     private final Config cfg;
-    private final BoxOverlay overlay;
-    private final Detector.Params params = new Detector.Params();
+    private final Tier tier;
+    private final int densityDpi;
+
+    private BoxOverlay overlay;
     private Capture capture;
     private MediaProjection projection;
 
+    /** Display size in screen pixels, current orientation. */
     private int screenW, screenH;
+    /** Capture size in pixels, which is what the detector sees. */
+    private int capW, capH;
+
+    private final Detector.Params params = new Detector.Params();
     private long lastAimAt;
     private volatile boolean assist = false;
     private volatile boolean boxes = true;
 
-    private Vision(Context ctx, Config cfg) {
+    private Vision(Context ctx, Config cfg, Tier tier, MediaProjection projection) {
         this.cfg = cfg;
-        DisplayMetrics dm = ctx.getResources().getDisplayMetrics();
-        this.screenW = dm.widthPixels;
-        this.screenH = dm.heightPixels;
-        this.overlay = new BoxOverlay(ctx, screenW, screenH);
+        this.tier = tier;
+        this.projection = projection;
+        this.densityDpi = ctx.getResources().getDisplayMetrics().densityDpi;
+
+        int[] screen = DeviceProfile.screenSize(ctx);
+        screenW = screen[0];
+        screenH = screen[1];
+
+        overlay = new BoxOverlay(ctx, screenW, screenH);
+        overlay.attach();
+
+        params.stride = tier.stride;
+        startCapture(ctx);
     }
 
     static boolean running() {
@@ -63,29 +84,37 @@ final class Vision {
             return "vision: off";
         }
         return "vision: " + (v.capture == null ? "starting" : "on")
-                + (Touch.ready() ? " + touch" : " (no touch service)");
+                + " - " + v.tier.describe(v.screenW, v.screenH)
+                + (Touch.ready() ? " + sentuh" : " (sentuh belum aktif)");
     }
 
     /** Called with the MediaProjection grant - from the Activity or the service. */
     static String start(Context ctx, Config cfg, int resultCode, Intent data) {
         stop();
         if (resultCode != Activity.RESULT_OK || data == null) {
-            return "vision: capture permission denied";
+            return "vision: izin rekam layar ditolak";
         }
-        Vision v = new Vision(ctx, cfg);
         MediaProjectionManager mpm = (MediaProjectionManager)
                 ctx.getSystemService(Context.MEDIA_PROJECTION_SERVICE);
         if (mpm == null) {
-            return "vision: no projection service";
+            return "vision: layanan rekam layar tidak ada di HP ini";
         }
-        v.projection = mpm.getMediaProjection(resultCode, data);
-        if (v.projection == null) {
+        MediaProjection projection = mpm.getMediaProjection(resultCode, data);
+        if (projection == null) {
             return "vision: projection refused";
         }
-        v.overlay.attach();
-        v.capture = new Capture(ctx, v.projection, v.screenW, v.screenH,
-                ctx.getResources().getDisplayMetrics().densityDpi, v::onFrame);
-        live = v;
+
+        Tier tier = DeviceProfile.read(ctx).tier;
+        if (tier.level == Tier.UNSUPPORTED) {
+            try {
+                projection.stop();
+            } catch (RuntimeException ignored) {
+            }
+            return "vision: " + (tier.reasons.isEmpty()
+                    ? "HP ini tidak mendukung rekam layar" : tier.reasons.get(0));
+        }
+
+        live = new Vision(ctx, cfg, tier, projection);
         return status();
     }
 
@@ -95,18 +124,35 @@ final class Vision {
             return;
         }
         live = null;
+        v.release();
+    }
+
+    /**
+     * Re-creates the capture at the display's current size.
+     *
+     * <p>The app is portrait and the game is landscape. Without this the first
+     * frame after the game starts is the right pixels in the wrong orientation,
+     * every box lands somewhere wrong, and it looks like the detector broke.
+     * The projection survives - only the virtual display is rebuilt.
+     */
+    static String resize(Context ctx) {
+        Vision v = live;
+        if (v == null) {
+            return "";
+        }
+        int[] screen = DeviceProfile.screenSize(ctx);
+        if (screen[0] == v.screenW && screen[1] == v.screenH) {
+            return "";
+        }
         if (v.capture != null) {
             v.capture.stop();
             v.capture = null;
         }
-        if (v.projection != null) {
-            try {
-                v.projection.stop();
-            } catch (RuntimeException ignored) {
-            }
-            v.projection = null;
-        }
-        v.overlay.detach();
+        v.screenW = screen[0];
+        v.screenH = screen[1];
+        v.overlay.resize(v.screenW, v.screenH);
+        v.startCapture(ctx);
+        return v.tier.describe(v.screenW, v.screenH);
     }
 
     static void setBoxes(boolean on) {
@@ -131,7 +177,38 @@ final class Vision {
         return v == null ? null : v.params;
     }
 
-    /** Called from the UI thread, once per captured frame. */
+    // ---- internals ---------------------------------------------------------
+
+    private void startCapture(Context ctx) {
+        int[] cap = tier.captureSize(screenW, screenH);
+        capW = cap[0];
+        capH = cap[1];
+        // The size limits are lengths, so they follow the capture down. Without
+        // this a half-resolution profile searches for nameplates twice as wide
+        // as anything it will ever see.
+        params.scaleFrom(capW);
+        capture = new Capture(ctx, projection, capW, capH, densityDpi, tier.fps, this::onFrame);
+    }
+
+    private void release() {
+        if (capture != null) {
+            capture.stop();
+            capture = null;
+        }
+        if (projection != null) {
+            try {
+                projection.stop();
+            } catch (RuntimeException ignored) {
+            }
+            projection = null;
+        }
+        if (overlay != null) {
+            overlay.detach();
+            overlay = null;
+        }
+    }
+
+    /** Called from the capture thread, once per frame the profile allows. */
     private void onFrame(int[] argb, int w, int h) {
         if (live != this || !License.unlocked()) {
             return;
@@ -141,14 +218,27 @@ final class Vision {
 
         List<Detector.Blob> blobs = Detector.detect(argb, w, h, params);
 
+        // Capture pixels to screen pixels: one multiply, and every consumer
+        // below works in the coordinates the user actually sees.
+        float fx = w <= 0 ? 1f : screenW / (float) w;
+        float fy = h <= 0 ? 1f : screenH / (float) h;
+
         if (boxes) {
-            overlay.update(blobs);
+            int[] rects = new int[blobs.size() * 4];
+            int i = 0;
+            for (Detector.Blob b : blobs) {
+                rects[i++] = Math.round(b.x * fx);
+                rects[i++] = Math.round(b.y * fy);
+                rects[i++] = Math.round((b.x + b.w) * fx);
+                rects[i++] = Math.round((b.y + b.h) * fy);
+            }
+            overlay.updateRects(rects);
         } else {
             overlay.clear();
         }
 
         if (assist && cfg.aimEnabled && !blobs.isEmpty()) {
-            steer(blobs.get(0), w, h);
+            steer(blobs.get(0), fx, fy);
         }
     }
 
@@ -160,7 +250,7 @@ final class Vision {
      * gap between gestures is what sets the effective speed, and the step
      * size is what keeps the movement continuous rather than a jump.
      */
-    private void steer(Detector.Blob target, int w, int h) {
+    private void steer(Detector.Blob target, float fx, float fy) {
         if (!Touch.ready()) {
             return;
         }
@@ -171,13 +261,15 @@ final class Vision {
             return;
         }
 
-        int cx = w / 2;
-        int cy = h / 2;
-        int dx = target.cx() - cx;
-        int dy = target.cy() - cy;
+        int cx = screenW / 2;
+        int cy = screenH / 2;
+        int tx = Math.round((target.x + target.w / 2f) * fx);
+        int ty = Math.round((target.y + target.h / 2f) * fy);
+        int dx = tx - cx;
+        int dy = ty - cy;
         double dist = Math.hypot(dx, dy);
 
-        int fovPx = (int) (Math.min(w, h) * (cfg.aimFov / 720.0));
+        int fovPx = (int) (Math.min(screenW, screenH) * (cfg.aimFov / 720.0));
         if (dist > fovPx || dist < 3) {
             return;
         }

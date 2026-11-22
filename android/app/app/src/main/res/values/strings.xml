@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!--
+      Read by the user in Settings -> Accessibility before they enable it, and
+      by anyone auditing the app afterwards. It says what the service does and
+      what it cannot do, because the second half is the part that matters.
+    -->
+    <string name="touch_desc">Menggeser dan mengetuk layar untuk bantuan bidik. Tidak membaca isi layar dan tidak melihat teks aplikasi apa pun.</string>
+    <string name="touch_label">Bantuan sentuh</string>
+</resources>

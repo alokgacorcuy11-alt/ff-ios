@@ -51,6 +51,8 @@ SUITES = [
     ("license       ", HERE / "test_license.py"),
     # the screen detector, against synthetic frames whose answer is known
     ("vision        ", HERE / "test_vision.py"),
+    # which profile a phone gets, and which vendor screens its ROM needs
+    ("compat engine ", HERE / "test_tier.py"),
     # the root tier's verdict and guide, run on a plain jdk
     ("root tier     ", HERE / "test_root.py"),
     # the panel's saved settings, parsed and re-emitted by the real java class

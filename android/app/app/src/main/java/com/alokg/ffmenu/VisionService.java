@@ -7,6 +7,7 @@ import android.app.NotificationManager;
 import android.app.Service;
 import android.content.Context;
 import android.content.Intent;
+import android.content.res.Configuration;
 import android.media.projection.MediaProjectionManager;
 import android.os.IBinder;
 
@@ -75,5 +76,19 @@ public final class VisionService extends Service {
     public void onDestroy() {
         Vision.stop();
         super.onDestroy();
+    }
+
+    /**
+     * The screen just changed shape - which is what opening the game does.
+     *
+     * <p>A service is told about configuration changes even when the Activity
+     * that started it is portrait-locked, so this is where the capture gets
+     * rebuilt at the size the display actually is now. Without it every box
+     * after rotation lands in the wrong place.
+     */
+    @Override
+    public void onConfigurationChanged(Configuration newConfig) {
+        super.onConfigurationChanged(newConfig);
+        Vision.resize(this);
     }
 }

@@ -18,6 +18,9 @@ import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
 
+import com.alokg.ffmenu.device.DeviceProfile;
+import com.alokg.ffmenu.device.Setup;
+import com.alokg.ffmenu.device.SetupActivity;
 import com.alokg.ffmenu.mirror.Bridge;
 import com.alokg.ffmenu.mirror.MirrorPanel;
 import com.alokg.ffmenu.mirror.Module;
@@ -68,7 +71,7 @@ public class MainActivity extends Activity {
 
     private TextView out;
     private EditText keyIn;
-    private Button activate, toggle, mirror, autoclean, diag, esp;
+    private Button activate, toggle, mirror, autoclean, diag, esp, setup;
     /** Install mode: true appends the random tail, false writes the reference bytes. */
     private boolean installTail = true;
     /** Set when LOG is the reason the folder picker was opened. */
@@ -160,6 +163,10 @@ public class MainActivity extends Activity {
         diag.setText("LOG");
         diag.setOnClickListener(v -> showGameLog());
 
+        setup = new Button(this);
+        setup.setText("SETUP");
+        setup.setOnClickListener(v -> openSetup());
+
         // ---- the key, then the two buttons a buyer actually needs -----------
         LinearLayout.LayoutParams kr = new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
@@ -176,6 +183,7 @@ public class MainActivity extends Activity {
 
         LinearLayout row2 = new LinearLayout(this);
         row2.setOrientation(LinearLayout.HORIZONTAL);
+        row2.addView(setup, cell());
         row2.addView(autoclean, cell());
         row2.addView(diag, cell());
         column.addView(row2, spaced(dp(6)));
@@ -183,7 +191,7 @@ public class MainActivity extends Activity {
         // One place to style every control. The material button style insists
         // on an ~88dp minimum width; five of those do not fit across a phone, so
         // labels came out as "CONNEC..." instead of being readable.
-        for (Button btn : new Button[]{toggle, mirror, esp, activate, autoclean, diag}) {
+        for (Button btn : new Button[]{toggle, mirror, esp, activate, autoclean, diag, setup}) {
             btn.setTextSize(12);
             btn.setMinWidth(0);
             btn.setMinimumWidth(0);
@@ -191,7 +199,7 @@ public class MainActivity extends Activity {
         }
 
         TextView hint = new TextView(this);
-        hint.setText("1) tempel key   2) AKTIFKAN   3) buka game, tekan MIRROR");
+        hint.setText("0) SETUP sekali   1) tempel key   2) AKTIFKAN   3) buka game, MIRROR");
         hint.setTextColor(Color.parseColor("#8b949e"));
         hint.setTypeface(Typeface.MONOSPACE);
         hint.setTextSize(10);
@@ -200,6 +208,21 @@ public class MainActivity extends Activity {
 
         scroller.addView(column);
         setContentView(scroller);
+
+        // Which profile this phone got, and what was actually read to decide
+        // it. Printed before anything else because it is the first thing worth
+        // knowing when someone reports that it "does not work on my phone".
+        io.execute(() -> {
+            DeviceProfile d = DeviceProfile.read(this);
+            say("hp: " + d.manufacturer + " " + d.model + " / android " + d.android
+                    + (d.rom().isEmpty() ? "" : " / " + d.rom()));
+            say(d.tier.describe(d.screenW, d.screenH));
+            if (d.gameVersion.isEmpty()) {
+                say("game: Free Fire belum terpasang");
+            } else {
+                say("game: Free Fire " + d.gameVersion);
+            }
+        });
 
         autoClean = !"0".equals(readOwn(CLEAN_FILE));
         paintAutoClean();
@@ -412,9 +435,8 @@ public class MainActivity extends Activity {
             return;
         }
         if (!android.provider.Settings.canDrawOverlays(this)) {
-            say("esp: izin overlay belum ada - buka izinnya, lalu tekan ESP lagi");
-            startActivity(new Intent(
-                    android.provider.Settings.ACTION_MANAGE_OVERLAY_PERMISSION));
+            say("esp: izin overlay belum ada - gue buka daftar setelannya");
+            openSetup();
             return;
         }
         android.media.projection.MediaProjectionManager mpm =
@@ -440,14 +462,27 @@ public class MainActivity extends Activity {
             return;
         }
         if (MirrorPanel.needsPermission(this)) {
-            say("mirror: izin overlay belum ada - buka izinnya, lalu tekan MIRROR lagi");
-            startActivity(new Intent(
-                    android.provider.Settings.ACTION_MANAGE_OVERLAY_PERMISSION));
+            say("mirror: izin overlay belum ada - gue buka daftar setelannya");
+            openSetup();
             return;
         }
         io.execute(() -> say(Bridge.verdict(true, Module.size(this), new Bridge().alive())));
         MirrorPanel.toggle(this);
         say(MirrorPanel.visible() ? "mirror: tampil" : "mirror: disembunyikan");
+    }
+
+    // ---- setup -------------------------------------------------------------
+
+    /**
+     * The one screen that knows what this brand calls its switches.
+     *
+     * <p>Every ROM hides the "do not kill my service" setting somewhere else,
+     * and no two of them use the same words. The buyer cannot be asked to find
+     * five screens in five different skins; this opens the right one for the
+     * phone it is running on, and re-reads the real state on the way back.
+     */
+    private void openSetup() {
+        startActivity(new Intent(this, SetupActivity.class));
     }
 
     // ---- the game's own log ------------------------------------------------

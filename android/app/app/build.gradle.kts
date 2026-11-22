@@ -30,8 +30,8 @@ android {
         // versionCode is allowed but pointless, and "aplikasi tidak terpasang"
         // is the message Android gives when it is not sure what it is
         // replacing. A number that always goes up removes the question.
-        versionCode = 5
-        versionName = "1.0"
+        versionCode = 6
+        versionName = "1.1"
         resValue("string", "app_name", appLabel)
     }
 
@@ -80,7 +80,11 @@ tasks.withType<org.gradle.api.tasks.compile.JavaCompile>().configureEach {
 
 // Note for whoever reads this next: the APK is deliberately this small. The
 // supervisor app writes one file and draws one window; everything else is in
-// the module inside the game. That is why there is no native code here, no
-// media projection and no accessibility service - nothing to declare that an
-// installer would have to weigh.
+// the module inside the game. That is why there is no native code here.
+//
+// The one declaration worth thinking about is the accessibility service. It is
+// what moves a touch, so it is what aiming needs, and there is no alternative -
+// Android has no other door. It is off until the user enables it in Settings,
+// it cannot read window content, and the boxes work without it. Removing it
+// would leave a detector that can see and cannot act.
 

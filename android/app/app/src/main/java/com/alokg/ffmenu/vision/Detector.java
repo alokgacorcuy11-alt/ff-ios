@@ -56,6 +56,25 @@ public final class Detector {
             return y * 1000 >= bandTop * Math.max(1, h) / 1000 * 1000
                     && y * 1000 <= bandBottom * Math.max(1, h);
         }
+
+        /**
+         * Rescales the size limits to a capture width.
+         *
+         * <p>The numbers above are for a 1280-wide capture. A profile that
+         * captures at half resolution draws the same nameplate at half the
+         * pixels, so a detector still looking for 18-pixel-wide blobs finds
+         * nothing at all and the app looks broken on exactly the phones that
+         * needed the smaller capture. Everything that is a length scales;
+         * everything that is a colour does not.
+         */
+        public void scaleFrom(int capWidth) {
+            float f = Math.max(0.2f, capWidth / 1280f);
+            minW = Math.max(6, Math.round(18 * f));
+            maxW = Math.max(minW + 6, Math.round(260 * f));
+            minH = Math.max(2, Math.round(3 * f));
+            maxH = Math.max(minH + 1, Math.round(46 * f));
+            minPixels = Math.max(6, Math.round(26 * f * f));
+        }
     }
 
     public static final class Blob {

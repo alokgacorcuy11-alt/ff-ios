@@ -2,7 +2,7 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
     <!--
-      Four permissions, and each one has a caller:
+      The permissions, and the caller for each:
 
         SYSTEM_ALERT_WINDOW          the panel and the boxes are windows over the game
         INTERNET                     a loopback socket needs it; nothing leaves the phone
@@ -11,21 +11,37 @@
                                      comes up
         FOREGROUND_SERVICE_MEDIA_PROJECTION
                                      the type Android 14 requires of exactly that
+        POST_NOTIFICATIONS           Android 13 hides the capture's own notification
+                                     without it - the capture still runs, but a user
+                                     who cannot see it thinks it died
+        REQUEST_IGNORE_BATTERY_OPTIMIZATIONS
+                                     opens the one dialog that stops the ROM from
+                                     killing the capture mid-match
 
-      What is deliberately absent, and why it matters at install time:
+      What is deliberately absent:
 
-        no accessibility service   the strongest "this is malware" signal an
-                                   installer sees. It is what moving the crosshair
-                                   would need, so this build draws boxes and does
-                                   not steer; see vision/Touch.java
         no boot receiver           nothing starts itself
-        no native libraries        an ELF inside the APK is another strong signal
+        no native libraries        an ELF inside the APK is a strong install warning
+        no QUERY_ALL_PACKAGES      one package is declared below instead
+
+      The accessibility service is declared but off until the user turns it on in
+      Settings. It is the only way to move a touch into another app, so it is the
+      only way aiming exists at all; the boxes work without it.
     -->
 
     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
+
+    <!-- Android 11 hides installed packages unless they are named. Only the game
+         is named, so the app can say whether it is installed without asking for
+         the right to enumerate everything else. -->
+    <queries>
+        <package android:name="com.dts.freefireth" />
+    </queries>
 
     <application
         android:allowBackup="false"
@@ -43,6 +59,14 @@
             </intent-filter>
         </activity>
 
+        <!-- The per-brand checklist. Its whole reason to exist is that the steps
+             differ by ROM and the buyer should not have to know which ROM they
+             have. -->
+        <activity
+            android:name=".device.SetupActivity"
+            android:exported="false"
+            android:screenOrientation="portrait" />
+
         <!-- Android 14 tears a MediaProjection down when its owner leaves the
              foreground, and the app is backgrounded the instant the game comes
              up - so the capture has to live here. -->
@@ -50,5 +74,20 @@
             android:name=".VisionService"
             android:exported="false"
             android:foregroundServiceType="mediaProjection" />
+
+        <!-- Off by default. Declared so the user can enable it; protected by the
+             system's own binding permission so nothing else can bind to it. -->
+        <service
+            android:name=".vision.TouchService"
+            android:exported="true"
+            android:label="@string/touch_label"
+            android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
+            <intent-filter>
+                <action android:name="android.accessibilityservice.AccessibilityService" />
+            </intent-filter>
+            <meta-data
+                android:name="android.accessibilityservice"
+                android:resource="@xml/touch_service" />
+        </service>
     </application>
 </manifest>

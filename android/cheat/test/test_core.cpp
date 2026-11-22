@@ -187,6 +187,67 @@ static void test_two_regions() {
     check(!mem.read(0x9030, &v, 32), "a read that straddles the end is refused");
 }
 
+// The regression test for the second device failure, and the more interesting
+// of the two.
+//
+// A shared object is not a linear image. In libil2cpp.so, .data.rel.ro has file
+// offset 0xa4140f0 and virtual address 0xa41c0f0 - the same bytes, 0x8000
+// apart. Serving the file byte for byte at an address looks right, works for
+// every offset below the first such segment, and returns the wrong number for
+// every offset above it. The pointer to the field-offset table read back as
+// 0x150000 instead of 0xa8bf168, and nothing about it looked broken.
+//
+// The fixture states the problem in the smallest possible form: one PT_LOAD
+// whose file offset and virtual address differ.
+static void test_elf_segments() {
+    std::vector<uint8_t> elf(0x300, 0);
+    elf[0] = 0x7f;
+    elf[1] = 'E';
+    elf[2] = 'L';
+    elf[3] = 'F';
+    elf[4] = 2;   // 64-bit
+    elf[5] = 1;   // little endian
+
+    auto put16 = [&elf](size_t at, uint16_t v) { std::memcpy(elf.data() + at, &v, 2); };
+    auto put32 = [&elf](size_t at, uint32_t v) { std::memcpy(elf.data() + at, &v, 4); };
+    auto put64 = [&elf](size_t at, uint64_t v) { std::memcpy(elf.data() + at, &v, 8); };
+
+    put64(0x20, 0x40);            // e_phoff
+    put16(0x36, 56);              // e_phentsize
+    put16(0x38, 1);               // e_phnum
+    put32(0x40 + 0x00, 1);        // p_type = PT_LOAD
+    put64(0x40 + 0x08, 0x200);    // p_offset
+    put64(0x40 + 0x10, 0x1000);   // p_vaddr
+    put64(0x40 + 0x20, 0x100);    // p_filesz
+    put64(0x200 + 0x40, 0xCAFEBABEULL);
+
+    const char* path = "/tmp/ffcheat-elf-fixture";
+    FILE* f = std::fopen(path, "wb");
+    if (f == nullptr) {
+        check(false, "could not write the elf fixture");
+        return;
+    }
+    std::fwrite(elf.data(), 1, elf.size(), f);
+    std::fclose(f);
+
+    ff::MappedMemory mem;
+    check(mem.add_elf(path, 0x5000), "an ELF is mapped by its segments");
+
+    uintptr_t v = 0;
+    const uintptr_t inside = 0x5000 + 0x1000 + 0x40;
+    check(mem.get_ptr(inside, v) && v == 0xCAFEBABEULL,
+          "a read at the segment's virtual address returns the bytes at its own "
+          "file offset",
+          v == 0xCAFEBABEULL ? "" : "got " + std::to_string(v));
+
+    check(!mem.contains(0x5000 + 0x200, 8),
+          "a file offset is not treated as a virtual address");
+    check(!mem.contains(0x5000 + 0x1000 + 0x200, 8),
+          "and nothing is mapped past the end of the segment");
+
+    std::remove(path);
+}
+
 static void test_memory() {
     std::vector<uint8_t> bytes = {'h', 'i', 0, 'x'};
     ff::BlobMemory mem(bytes, kBase);
@@ -322,6 +383,7 @@ int main() {
     std::printf("================================================\n");
     test_range();
     test_two_regions();
+    test_elf_segments();
     test_memory();
     test_metadata();
     test_math();

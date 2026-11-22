@@ -91,12 +91,12 @@ int main(int argc, char** argv) {
     }
     STAGE(2);
     std::printf("stage 2: mapping libil2cpp\n");
-    if (!mem.add_file(argv[1], kIl2cppBase)) {
+    if (!mem.add_elf(argv[1], kIl2cppBase)) {
         std::printf("[FAIL] cannot map %s\n", argv[1]);
         return 1;
     }
-    std::printf("  mapped %zu bytes over %zu regions\n\n", mem.mapped_bytes(),
-                mem.ranges().size());
+    std::printf("  mapped %zu bytes over %zu regions (segments: %zu)\n\n", mem.mapped_bytes(),
+                mem.ranges().size(), mem.region_count());
 
     // --- the header has to be found the same way the cheat finds it --------
     STAGE(3);

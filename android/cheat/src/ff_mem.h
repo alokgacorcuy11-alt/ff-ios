@@ -140,14 +140,36 @@ public:
     MappedMemory() = default;
     ~MappedMemory() override;
 
+    // Serves a file byte for byte at a chosen address. Right for a file that is
+    // just bytes, such as global-metadata.dat.
     bool add_file(const char* path, uintptr_t pretend_base);
+
+    // Serves a shared object the way the loader would: each PT_LOAD segment is
+    // placed at its own virtual address, from its own file offset.
+    //
+    // add_file is wrong for a shared object and the failure is silent. In
+    // libil2cpp.so, .data.rel.ro has file offset 0xa4140f0 and virtual address
+    // 0xa41c0f0 - a difference of 0x8000. Laying the file out linearly means a
+    // read aimed at 0xa5c7f60 returns the bytes that belong at 0xa5d3f60, which
+    // is a perfectly plausible number and not the one that was asked for. The
+    // pointer to the field-offset table came back as 0x150000 instead of
+    // 0xa8bf168, and every offset read through it was wrong.
+    bool add_elf(const char* path, uintptr_t pretend_base);
 
     bool read(uintptr_t addr, void* out, size_t n) const override;
     const std::vector<Range>& ranges() const override { return ranges_; }
 
     size_t mapped_bytes() const { return mapped_; }
+    size_t region_count() const { return regions_.size(); }
 
 private:
+    struct Raw {
+        void* ptr;
+        size_t size;
+    };
+
+    bool map_raw(const char* path, uintptr_t& out_ptr, size_t& out_size);
+
     // The region and its bytes are kept in one struct, so the containment rule
     // has exactly one definition - Range::contains - and cannot drift into a
     // second copy inside read().
@@ -155,6 +177,7 @@ private:
         Range range;
         const uint8_t* data;
     };
+    std::vector<Raw> raw_;
     std::vector<Region> regions_;
     std::vector<Range> ranges_;
     size_t mapped_ = 0;

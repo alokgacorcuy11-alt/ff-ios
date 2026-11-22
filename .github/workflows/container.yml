@@ -86,6 +86,10 @@ jobs:
           # call in every process fixes all of them, including the ones not yet
           # found.
           python3 container/patch_hidden_api.py base
+          # The guest died every three seconds with nothing logged, because the
+          # crash handler logged after a call that can throw. The stack trace is
+          # now written first.
+          python3 container/patch_crash_visibility.py base
 
       - uses: gradle/actions/setup-gradle@v3
         with:

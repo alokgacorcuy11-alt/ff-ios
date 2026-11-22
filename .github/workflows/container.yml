@@ -64,6 +64,12 @@ jobs:
         run: |
           set -euo pipefail
           python3 container/patch_split_selection.py base
+          # The launcher's loading dialog is a trap when the launch call never
+          # returns: it hides the UI, refuses BACK, and the only way out is the
+          # Home button. This makes it cancellable, adds a 25 s timeout that says
+          # so, and logs both sides of the launch call so "returned false" can be
+          # told apart from "never returned".
+          python3 container/patch_launcher.py base
 
       - uses: gradle/actions/setup-gradle@v3
         with:

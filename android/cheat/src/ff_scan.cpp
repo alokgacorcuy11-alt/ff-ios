@@ -77,15 +77,21 @@ void ClassFinder::find_all(const TypeInfo& type, std::vector<ClassHit>& out) con
 
     // Search for the pointer value, not for a struct. Any object holding a
     // reference to this name is a hit, and validation filters them.
+    //
+    // The widen is not cosmetic: uintptr_t is 32 bits on armeabi-v7a, and
+    // shifting it by 32 is undefined. Building the pattern from a known 64-bit
+    // value makes the upper bytes zero on 32-bit instead of whatever the
+    // compiler produced, which is what a 32-bit address looks like anyway.
+    const uint64_t wide = static_cast<uint64_t>(needle);
     const uint8_t bytes[8] = {
-            static_cast<uint8_t>(needle & 0xff),
-            static_cast<uint8_t>((needle >> 8) & 0xff),
-            static_cast<uint8_t>((needle >> 16) & 0xff),
-            static_cast<uint8_t>((needle >> 24) & 0xff),
-            static_cast<uint8_t>((needle >> 32) & 0xff),
-            static_cast<uint8_t>((needle >> 40) & 0xff),
-            static_cast<uint8_t>((needle >> 48) & 0xff),
-            static_cast<uint8_t>((needle >> 56) & 0xff),
+            static_cast<uint8_t>(wide & 0xff),
+            static_cast<uint8_t>((wide >> 8) & 0xff),
+            static_cast<uint8_t>((wide >> 16) & 0xff),
+            static_cast<uint8_t>((wide >> 24) & 0xff),
+            static_cast<uint8_t>((wide >> 32) & 0xff),
+            static_cast<uint8_t>((wide >> 40) & 0xff),
+            static_cast<uint8_t>((wide >> 48) & 0xff),
+            static_cast<uint8_t>((wide >> 56) & 0xff),
     };
 
     std::vector<uint8_t> block;
